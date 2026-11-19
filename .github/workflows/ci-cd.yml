@@ -11,4 +11,7 @@ jobs:
         with:
           python-version: '3.11'
       - run: pip install -r backend/requirements.txt
-      - run: cd backend && pytest test_leaderboard_and_invitations.py -v
+      - run: |
+          cd backend
+          python -c "import main, seed_problems; main.init_db(); seed_problems.seed_all()"
+          pytest test_leaderboard_and_invitations.py -v
