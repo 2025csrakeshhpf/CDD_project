@@ -13,5 +13,6 @@ jobs:
       - run: pip install -r backend/requirements.txt
       - run: |
           cd backend
-          python -c "import main, seed_problems; main.init_db(); seed_problems.seed_all()"
+          python -c "import main; main.init_db()"
+          python seed_problems.py
           pytest test_leaderboard_and_invitations.py -v
