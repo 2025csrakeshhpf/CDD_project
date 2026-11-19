@@ -65,16 +65,15 @@ def _send_via_resend_https(to_email: str, subject: str, html_body: str, text_bod
     try:
         with _urllib_req.urlopen(req, timeout=15) as resp:
             if 200 <= resp.status < 300:
-                return True, None
-            return False, f"HTTP {resp.status}"
+                return {"sent": True, "error": None}
+            return {"sent": False, "error": f"HTTP {resp.status}"}
     except Exception as exc:
-        return False, f"{type(exc).__name__}: {exc}"
+        return {"sent": False, "error": f"{type(exc).__name__}: {exc}"}
 
 def send_email(to_email: str, subject: str, html_body: str, text_body: str = ""):
     resend_res = _send_via_resend_https(to_email, subject, html_body, text_body or html_body)
     if resend_res is not None:
         return resend_res
-to_email: str, subject: str, html_body: str, text_body: str) -> Dict[str, Any]:
     """
     Sends an email via SMTP. Never logs passwords.
     Returns {"sent": True} on real SMTP acceptance or {"sent": False, "error": "..."} on failure.
