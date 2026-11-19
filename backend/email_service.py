@@ -36,7 +36,45 @@ def get_smtp_config() -> Dict[str, Any]:
     }
 
 
-def send_email(to_email: str, subject: str, html_body: str, text_body: str) -> Dict[str, Any]:
+
+import json as _json
+import urllib.request as _urllib_req
+
+def _send_via_resend_https(to_email: str, subject: str, html_body: str, text_body: str):
+    api_key = os.getenv("RESEND_API_KEY", "").strip()
+    if not api_key:
+        return None
+    from_addr = os.getenv("RESEND_FROM_EMAIL", "Placement Tracker <onboarding@resend.dev>").strip()
+    payload = _json.dumps({
+        "from": from_addr,
+        "to": [to_email],
+        "subject": subject,
+        "html": html_body,
+        "text": text_body,
+    }).encode("utf-8")
+    req = _urllib_req.Request(
+        "https://api.resend.com/emails",
+        data=payload,
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+            "User-Agent": "PlacementTracker/1.0",
+        },
+        method="POST",
+    )
+    try:
+        with _urllib_req.urlopen(req, timeout=15) as resp:
+            if 200 <= resp.status < 300:
+                return True, None
+            return False, f"HTTP {resp.status}"
+    except Exception as exc:
+        return False, f"{type(exc).__name__}: {exc}"
+
+def send_email(to_email: str, subject: str, html_body: str, text_body: str = ""):
+    resend_res = _send_via_resend_https(to_email, subject, html_body, text_body or html_body)
+    if resend_res is not None:
+        return resend_res
+to_email: str, subject: str, html_body: str, text_body: str) -> Dict[str, Any]:
     """
     Sends an email via SMTP. Never logs passwords.
     Returns {"sent": True} on real SMTP acceptance or {"sent": False, "error": "..."} on failure.
