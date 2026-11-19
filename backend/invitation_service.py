@@ -1,4 +1,12 @@
-﻿import secrets
+
+# --- Real SMTP Email Delivery Hook for Peer Coding Challenges ---
+try:
+    from email_service import send_peer_challenge_email as _send_challenge_mail, send_challenge_status_email as _send_status_mail
+except Exception:
+    _send_challenge_mail = None
+    _send_status_mail = None
+
+import secrets
 import sqlite3
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional

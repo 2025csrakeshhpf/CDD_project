@@ -1,4 +1,4 @@
-﻿from fastapi.testclient import TestClient
+from fastapi.testclient import TestClient
 from main import app, init_db
 from duel_service import init_duel_tables
 from invitation_service import _conn, init_invitation_tables

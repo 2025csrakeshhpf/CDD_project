@@ -1,4 +1,4 @@
-﻿from datetime import datetime, timedelta
+from datetime import datetime, timedelta
 from fastapi.testclient import TestClient
 from main import app, init_db
 from duel_service import _conn, init_duel_tables

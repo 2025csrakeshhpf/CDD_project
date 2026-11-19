@@ -1,4 +1,5 @@
-﻿import base64
+from typing import Optional
+import base64
 import hashlib
 import hmac
 import json
@@ -1004,3 +1005,217 @@ app.include_router(invitation_router)
 @app.get("/health")
 def health_check():
     return {"status": "ok"}
+
+
+# ==============================================================================
+# UPGRADED HR AI INTERVIEW, PEER CHALLENGE EMAIL & FEEDBACK EMAIL ROUTES
+# ==============================================================================
+import hashlib
+from pydantic import BaseModel
+from fastapi import Depends, HTTPException, Request
+from email_service import send_peer_challenge_email, send_challenge_status_email, send_feedback_email
+from hr_interview_service import (
+    init_hr_interview_tables,
+    evaluate_interview_answer,
+    finalize_hr_interview,
+    get_hr_interview_history,
+    get_passing_score,
+)
+
+init_hr_interview_tables("placement.db")
+
+
+class HRAnswerEvalRequest(BaseModel):
+    question: str
+    answer: str
+    question_index: int = 1
+    total_questions: int = 5
+
+
+class HRCompleteRequest(BaseModel):
+    student_name: Optional[str] = None
+    turns: list[dict]
+
+
+class FeedbackSubmitRequest(BaseModel):
+    category: str  # "Bug Report" or "Suggestion"
+    title: str
+    description: str
+    page_name: Optional[str] = "General"
+
+
+class PeerChallengeEmailRequest(BaseModel):
+    recipient_email: str
+    recipient_name: str
+    challenger_name: str
+    problem_title: str
+    difficulty: str = "Medium"
+    duration_mins: int = 30
+    invitation_uid: str
+
+
+def _resolve_authenticated_user(request: Request) -> dict:
+    """Reads the existing Bearer token session from SQLite without altering auth logic."""
+    auth_header = request.headers.get("Authorization", "")
+    token = auth_header.replace("Bearer ", "").strip()
+    if not token:
+        return {}
+    try:
+        import sqlite3
+        conn = sqlite3.connect("placement.db")
+        conn.row_factory = sqlite3.Row
+        # Support common session/user table structures
+        tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+        if "sessions" in tables and "users" in tables:
+            row = conn.execute(
+                "SELECT u.* FROM sessions s JOIN users u ON s.user_id = u.id WHERE s.token = ?", (token,)
+            ).fetchone()
+            if row:
+                conn.close()
+                return dict(row)
+        conn.close()
+    except Exception:
+        pass
+    return {}
+
+
+@app.get("/api/hr-interview/intro")
+def hr_interview_intro():
+    return {
+        "interviewer_name": "Ananya (AI Placement HR Panel)",
+        "introduction": (
+            "Hello! I am Ananya, your AI Placement HR Interviewer. Today I will ask you a series of HR and situational "
+            "questions to evaluate your communication, clarity, reasoning, and readiness for campus placements. "
+            "Please answer naturally?I will review each response before moving to the next question."
+        ),
+        "passing_score": get_passing_score(),
+        "total_marks": 100,
+    }
+
+
+@app.post("/api/hr-interview/evaluate-answer")
+def hr_interview_evaluate_turn(payload: HRAnswerEvalRequest):
+    return evaluate_interview_answer(
+        question=payload.question,
+        answer=payload.answer,
+        question_index=payload.question_index,
+        total_questions=payload.total_questions,
+    )
+
+
+@app.post("/api/hr-interview/complete")
+def hr_interview_complete(payload: HRCompleteRequest, request: Request):
+    user = _resolve_authenticated_user(request)
+    student_name = user.get("name") or user.get("full_name") or payload.student_name or "Student"
+    return finalize_hr_interview(
+        student_name=student_name,
+        turns=payload.turns,
+        user_id=user.get("id"),
+        student_email=user.get("email"),
+        db_path="placement.db",
+    )
+
+
+@app.get("/api/hr-interview/history")
+def hr_interview_history(request: Request, student_name: Optional[str] = None):
+    user = _resolve_authenticated_user(request)
+    return {
+        "sessions": get_hr_interview_history(
+            user_id=user.get("id"),
+            student_name=student_name or user.get("name"),
+            db_path="placement.db",
+        )
+    }
+
+
+@app.post("/api/invitations/notify-email")
+def notify_peer_challenge_email(payload: PeerChallengeEmailRequest):
+    res = send_peer_challenge_email(
+        recipient_email=payload.recipient_email,
+        recipient_name=payload.recipient_name,
+        challenger_name=payload.challenger_name,
+        problem_title=payload.problem_title,
+        difficulty=payload.difficulty,
+        duration_mins=payload.duration_mins,
+        invitation_uid=payload.invitation_uid,
+    )
+    return {
+        "email_sent": res["sent"],
+        "message": "Challenge email sent successfully." if res["sent"] else res["error"],
+    }
+
+
+@app.post("/api/feedback/submit")
+def submit_bug_or_suggestion(payload: FeedbackSubmitRequest, request: Request):
+    import sqlite3
+    from datetime import datetime
+
+    user = _resolve_authenticated_user(request)
+    # Enforce authenticated identity when logged in so users cannot impersonate others
+    student_name = user.get("name") or user.get("full_name") or "Authenticated Student"
+    student_email = user.get("email") or ""
+    user_id = user.get("id")
+
+    title = payload.title.strip()
+    description = payload.description.strip()
+    if not title or not description:
+        raise HTTPException(status_code=400, detail="Title and description are required.")
+
+    # Prevent duplicate submissions/emails for identical content
+    dedup_raw = f"{student_email}|{payload.category.strip().lower()}|{title.lower()}|{description.lower()}"
+    dedup_hash = hashlib.sha256(dedup_raw.encode("utf-8")).hexdigest()
+
+    conn = sqlite3.connect("placement.db")
+    conn.row_factory = sqlite3.Row
+    existing = conn.execute("SELECT * FROM feedback_submissions WHERE dedup_hash = ?", (dedup_hash,)).fetchone()
+    if existing:
+        conn.close()
+        return {
+            "saved": True,
+            "duplicate": True,
+            "email_sent": bool(existing["email_sent"]),
+            "message": "This feedback has already been recorded.",
+        }
+
+    submitted_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    cur = conn.execute(
+        """
+        INSERT INTO feedback_submissions
+        (user_id, student_name, student_email, category, title, description, page_name, dedup_hash, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (user_id, student_name, student_email, payload.category, title, description, payload.page_name, dedup_hash, submitted_at),
+    )
+    feedback_id = cur.lastrowid
+    conn.commit()
+
+    email_res = send_feedback_email(
+        student_name=student_name,
+        student_email=student_email,
+        category=payload.category,
+        title=title,
+        description=description,
+        page_name=payload.page_name or "General",
+        submitted_at=submitted_at,
+    )
+
+    conn.execute(
+        "UPDATE feedback_submissions SET email_sent = ?, email_error = ? WHERE id = ?",
+        (1 if email_res["sent"] else 0, email_res.get("error"), feedback_id),
+    )
+    conn.commit()
+    conn.close()
+
+    if email_res["sent"]:
+        return {
+            "saved": True,
+            "email_sent": True,
+            "feedback_id": feedback_id,
+            "message": "Feedback saved and delivered to the administrator's email.",
+        }
+    return {
+        "saved": True,
+        "email_sent": False,
+        "feedback_id": feedback_id,
+        "message": f"Feedback saved in database, but email delivery failed ({email_res['error']}).",
+    }

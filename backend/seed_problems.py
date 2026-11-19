@@ -1,4 +1,4 @@
-﻿import json
+import json
 import math
 import sqlite3
 from sqlalchemy.orm import Session
