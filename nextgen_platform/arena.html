@@ -1,0 +1,414 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>NextGen Arena • Competitive Programming & AI Placement Ecosystem</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-[#050711] text-slate-100 min-h-screen font-sans">
+
+  <!-- Login Overlay (Reuses Existing Student Placement Tracker Account) -->
+  <div id="ngAuthBox" class="min-h-screen flex items-center justify-center p-4">
+    <div class="w-full max-w-md bg-[#0c1122] border border-purple-500/30 rounded-2xl p-7 space-y-4 shadow-2xl">
+      <div class="text-center">
+        <span class="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-widest bg-purple-950 text-purple-300 border border-purple-700">Isolated Extension • Port 8001</span>
+        <h1 class="text-xl font-extrabold text-white mt-2">NextGen Competitive Arena</h1>
+        <p class="text-xs text-slate-400">Sign in using your existing Placement Tracker credentials</p>
+      </div>
+      <p id="ngAuthErr" class="hidden text-xs text-rose-400 bg-rose-950/50 border border-rose-800 p-2.5 rounded-lg"></p>
+      <form onsubmit="ngLogin(event)" class="space-y-3.5">
+        <input id="ngEmail" type="email" value="rakesh@vtu.ac.in" required class="w-full bg-[#060913] border border-slate-700 rounded-xl px-3.5 py-2.5 text-sm" />
+        <input id="ngPass" type="password" value="rakesh123" required class="w-full bg-[#060913] border border-slate-700 rounded-xl px-3.5 py-2.5 text-sm" />
+        <button type="submit" class="w-full bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 py-2.5 rounded-xl text-sm font-bold">Enter NextGen Arena</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Main NextGen Shell -->
+  <div id="ngApp" class="hidden min-h-screen flex flex-col">
+    <header class="border-b border-slate-800 bg-[#0a0f1f] px-6 py-3 flex flex-wrap items-center justify-between gap-3">
+      <div class="flex items-center gap-3">
+        <span class="w-8 h-8 rounded-lg bg-purple-600 flex items-center justify-center font-extrabold text-xs">NG</span>
+        <div>
+          <h1 class="font-bold text-sm">NextGen Competitive & AI Placement Ecosystem</h1>
+          <p class="text-[11px] text-slate-400" id="ngUserBar">Rakesh HP • 4IK25CS161</p>
+        </div>
+      </div>
+
+      <nav class="flex flex-wrap gap-1.5 text-xs">
+        <button onclick="ngTab('judge')" class="ng-tab px-3 py-1.5 rounded-lg bg-purple-600 text-white font-semibold">1. Online Judge & AI Mentor</button>
+        <button onclick="ngTab('contests')" class="ng-tab px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300">2. Contest & Rating Engine</button>
+        <button onclick="ngTab('academy')" class="ng-tab px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300">3. Academy, Tournaments & Skill-Gap</button>
+        <button onclick="ngTab('community')" class="ng-tab px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300">4. Global Community</button>
+        <button onclick="ngTab('admin')" id="ngAdminTabBtn" class="hidden ng-tab px-3 py-1.5 rounded-lg bg-slate-800 text-amber-300">5. Admin Control</button>
+        <button onclick="ngLogout()" class="px-3 py-1.5 rounded-lg bg-rose-600/80 text-white">Logout</button>
+      </nav>
+    </header>
+
+    <main class="flex-1 max-w-7xl w-full mx-auto p-6 space-y-6">
+
+      <!-- MODULE 1 & 4: NEXT-GEN ONLINE JUDGE + AI CODING INTELLIGENCE -->
+      <section id="sec-judge" class="grid grid-cols-1 lg:grid-cols-12 gap-5">
+        <div class="lg:col-span-4 bg-[#0c1122] border border-slate-800 rounded-2xl p-4 space-y-3">
+          <div class="flex justify-between items-center">
+            <h2 class="font-bold text-sm">Judge Problem Bank</h2>
+            <label class="text-xs text-purple-300 flex items-center gap-1">
+              <input type="checkbox" id="bmFilter" onchange="loadProblems()" /> Bookmarked
+            </label>
+          </div>
+          <div id="ngProblemList" class="space-y-2 max-h-[560px] overflow-y-auto"></div>
+        </div>
+
+        <div class="lg:col-span-8 bg-[#0c1122] border border-slate-800 rounded-2xl p-5 space-y-4">
+          <div class="flex flex-wrap justify-between items-start gap-2 border-b border-slate-800 pb-3">
+            <div>
+              <span class="text-xs text-purple-400 font-mono" id="pMeta">NG101 • Exact Checker</span>
+              <h3 class="text-lg font-bold text-white" id="pTitle">Select a problem</h3>
+              <p class="text-xs text-slate-300 mt-1" id="pStmt"></p>
+            </div>
+            <button onclick="toggleBookmark()" class="text-xs bg-slate-800 hover:bg-slate-700 px-3 py-1.5 rounded-lg">★ Bookmark</button>
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs" id="pSamples"></div>
+
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <select id="ngLangSelect" class="bg-[#060913] border border-slate-700 rounded-lg px-3 py-1.5 text-xs"></select>
+            <div class="flex gap-2">
+              <button onclick="runJudge('run')" class="bg-slate-800 hover:bg-slate-700 px-3.5 py-1.5 rounded-lg text-xs font-semibold">▶ Run Samples</button>
+              <button onclick="runJudge('submit')" class="bg-emerald-600 hover:bg-emerald-500 px-4 py-1.5 rounded-lg text-xs font-semibold">✓ Submit (All + Hidden)</button>
+            </div>
+          </div>
+
+          <textarea id="ngEditor" rows="11" spellcheck="false" class="w-full bg-[#060913] border border-slate-700 rounded-xl p-3 font-mono text-sm text-emerald-300"></textarea>
+
+          <!-- Custom Input Runner -->
+          <div class="flex gap-2">
+            <input id="ngCustomIn" type="text" placeholder="Custom stdin test input..." class="flex-1 bg-[#060913] border border-slate-700 rounded-lg px-3 py-1.5 text-xs font-mono" />
+            <button onclick="runJudge('custom')" class="bg-purple-600 px-3.5 py-1.5 rounded-lg text-xs font-semibold">Run Custom</button>
+          </div>
+
+          <div id="ngVerdictBox" class="hidden p-4 rounded-xl border text-xs space-y-2"></div>
+
+          <!-- Module 4: AI Coding Intelligence -->
+          <div class="bg-[#060913] border border-purple-700/40 p-4 rounded-xl space-y-2 text-xs">
+            <div class="flex justify-between items-center">
+              <strong class="text-purple-300">🧠 AI Coding Intelligence (Progressive Hints & Complexity Coach)</strong>
+              <button onclick="askAIMentor()" class="bg-purple-600 hover:bg-purple-500 px-3 py-1 rounded-lg font-semibold">Analyze My Code</button>
+            </div>
+            <div id="ngMentorOut" class="text-slate-300 space-y-1"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- MODULE 2 & 3: ADVANCED CONTEST ENGINE & INTELLIGENT ELO RATINGS -->
+      <section id="sec-contests" class="hidden grid grid-cols-1 lg:grid-cols-12 gap-5">
+        <div class="lg:col-span-7 bg-[#0c1122] border border-slate-800 rounded-2xl p-5 space-y-4">
+          <div class="flex justify-between items-center">
+            <h2 class="font-bold text-base">Multi-Mode Contest Engine</h2>
+            <button onclick="generateAIContest()" class="bg-gradient-to-r from-purple-600 to-indigo-600 px-3.5 py-1.5 rounded-lg text-xs font-bold">✨ Generate AI Personalized Contest</button>
+          </div>
+          <div id="ngContestList" class="space-y-3 text-xs"></div>
+        </div>
+
+        <div class="lg:col-span-5 bg-[#0c1122] border border-slate-800 rounded-2xl p-5 space-y-3">
+          <h2 class="font-bold text-base">Intelligent ELO Ratings & Rankings</h2>
+          <div id="ngLeaderboard" class="space-y-2 text-xs"></div>
+        </div>
+      </section>
+
+      <!-- MODULE 5, 6, 7, 9: ADAPTIVE ACADEMY, TOURNAMENTS & RESUME SKILL-GAP -->
+      <section id="sec-academy" class="hidden grid grid-cols-1 lg:grid-cols-12 gap-5">
+        <div class="lg:col-span-6 bg-[#0c1122] border border-slate-800 rounded-2xl p-5 space-y-3 text-xs">
+          <h2 class="font-bold text-base text-purple-300">Adaptive DSA Academy & Tournaments</h2>
+          <div id="ngPathsList" class="space-y-2.5"></div>
+          <h3 class="font-bold text-sm text-amber-300 pt-2">Multi-Stage Programming Tournaments</h3>
+          <div id="ngTournamentsList" class="space-y-2"></div>
+        </div>
+
+        <div class="lg:col-span-6 bg-[#0c1122] border border-slate-800 rounded-2xl p-5 space-y-3 text-xs">
+          <h2 class="font-bold text-base text-emerald-300">Resume Skill-Gap & Company Matching</h2>
+          <input id="resumeSkillsInp" type="text" value="Arrays, Strings, Python, SQL" class="w-full bg-[#060913] border border-slate-700 rounded-lg px-3 py-2" />
+          <div class="flex gap-2">
+            <select id="targetCompSel" class="bg-[#060913] border border-slate-700 rounded-lg px-3 py-2">
+              <option>Google</option><option>Amazon</option><option>TCS</option>
+            </select>
+            <button onclick="analyzeSkillGap()" class="bg-emerald-600 px-4 py-2 rounded-lg font-semibold">Run Skill-Gap Analysis</button>
+          </div>
+          <div id="skillGapOut" class="space-y-2"></div>
+        </div>
+      </section>
+
+      <!-- MODULE 8: GLOBAL CODING COMMUNITY -->
+      <section id="sec-community" class="hidden bg-[#0c1122] border border-slate-800 rounded-2xl p-5 space-y-4 text-xs">
+        <h2 class="font-bold text-base">Global Coding Community, Editorials & Solution Sharing</h2>
+        <form onsubmit="postCommunity(event)" class="flex flex-wrap gap-2">
+          <select id="commType" class="bg-[#060913] border border-slate-700 rounded-lg px-2.5 py-2">
+            <option>Discussion</option><option>Editorial</option><option>Solution</option>
+          </select>
+          <input id="commTitle" type="text" required placeholder="Title" class="w-1/4 bg-[#060913] border border-slate-700 rounded-lg px-3 py-2" />
+          <input id="commBody" type="text" required placeholder="Share algorithmic insight..." class="flex-1 bg-[#060913] border border-slate-700 rounded-lg px-3 py-2" />
+          <button type="submit" class="bg-purple-600 px-4 py-2 rounded-lg font-semibold">Publish</button>
+        </form>
+        <div id="commFeed" class="space-y-2"></div>
+      </section>
+
+      <!-- MODULE 10: ADMIN MANAGEMENT -->
+      <section id="sec-admin" class="hidden bg-[#0c1122] border border-slate-800 rounded-2xl p-5 space-y-3 text-xs">
+        <h2 class="font-bold text-base text-amber-300">Admin Problem & Hidden Test Case Creator</h2>
+        <form onsubmit="adminAddProblem(event)" class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <input id="admCode" placeholder="Code (e.g., NG201)" required class="bg-[#060913] border border-slate-700 rounded-lg px-3 py-2" />
+          <input id="admTitle" placeholder="Problem Title" required class="bg-[#060913] border border-slate-700 rounded-lg px-3 py-2" />
+          <input id="admTopic" placeholder="Topic (e.g., Graphs)" required class="bg-[#060913] border border-slate-700 rounded-lg px-3 py-2" />
+          <select id="admDiff" class="bg-[#060913] border border-slate-700 rounded-lg px-3 py-2"><option>Easy</option><option>Medium</option><option>Hard</option></select>
+          <textarea id="admStmt" placeholder="Problem statement..." required class="sm:col-span-2 bg-[#060913] border border-slate-700 rounded-lg p-3"></textarea>
+          <input id="admSIn" placeholder="Sample Input" required class="bg-[#060913] border border-slate-700 rounded-lg px-3 py-2" />
+          <input id="admSOut" placeholder="Sample Expected Output" required class="bg-[#060913] border border-slate-700 rounded-lg px-3 py-2" />
+          <input id="admHIn" placeholder="Hidden Input" required class="bg-[#060913] border border-slate-700 rounded-lg px-3 py-2" />
+          <input id="admHOut" placeholder="Hidden Expected Output" required class="bg-[#060913] border border-slate-700 rounded-lg px-3 py-2" />
+          <button type="submit" class="sm:col-span-2 bg-emerald-600 py-2 rounded-lg font-bold">Publish Problem & Hidden Cases</button>
+        </form>
+      </section>
+
+    </main>
+  </div>
+
+  <script>
+    let ngToken = localStorage.getItem("ng_token") || "";
+    let ngUser = null;
+    let activeProbId = 1;
+
+    function ngHeaders() { return { "Content-Type": "application/json", "Authorization": `Bearer ${ngToken}` }; }
+
+    async function ngLogin(e) {
+      e.preventDefault();
+      const res = await fetch("/ng-api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: document.getElementById("ngEmail").value, password: document.getElementById("ngPass").value })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        const err = document.getElementById("ngAuthErr");
+        err.textContent = data.detail;
+        err.classList.remove("hidden");
+        return;
+      }
+      ngToken = data.token;
+      ngUser = data.user;
+      localStorage.setItem("ng_token", ngToken);
+      bootArena();
+    }
+
+    function ngLogout() {
+      localStorage.removeItem("ng_token");
+      location.reload();
+    }
+
+    async function bootArena() {
+      document.getElementById("ngAuthBox").classList.add("hidden");
+      document.getElementById("ngApp").classList.remove("hidden");
+      document.getElementById("ngUserBar").textContent = `${ngUser.name} • ${ngUser.usn} (${ngUser.role})`;
+      if (ngUser.role === "admin") document.getElementById("ngAdminTabBtn").classList.remove("hidden");
+
+      const lRes = await fetch("/ng-api/languages", { headers: ngHeaders() });
+      const langs = await lRes.json();
+      document.getElementById("ngLangSelect").innerHTML = langs.map(l => `<option value="${l.slug}">${l.name}${l.available ? "" : " (Missing on host)"}</option>`).join("");
+      loadProblems();
+    }
+
+    function ngTab(name) {
+      ["judge", "contests", "academy", "community", "admin"].forEach(t => document.getElementById(`sec-${t}`).classList.add("hidden"));
+      document.getElementById(`sec-${name}`).classList.remove("hidden");
+      if (name === "contests") loadContestsAndRanks();
+      if (name === "academy") loadAcademy();
+      if (name === "community") loadCommunity();
+    }
+
+    async function loadProblems() {
+      const bm = document.getElementById("bmFilter").checked;
+      const res = await fetch(`/ng-api/problems?bookmarked_only=${bm}`, { headers: ngHeaders() });
+      const probs = await res.json();
+      document.getElementById("ngProblemList").innerHTML = probs.map(p => `
+        <button onclick="openProblem(${p.id})" class="w-full text-left p-3 rounded-xl bg-[#060913] hover:bg-slate-800 border ${p.solved ? 'border-emerald-600' : 'border-slate-800'}">
+          <div class="flex justify-between text-[11px] text-slate-400">
+            <span>${p.code} • ${p.topic}</span>
+            <span class="text-purple-400">${p.difficulty} ${p.solved ? '✓' : ''}</span>
+          </div>
+          <p class="text-xs font-bold text-white mt-0.5">${p.title}</p>
+        </button>
+      `).join("");
+      if (probs.length > 0) openProblem(probs[0].id);
+    }
+
+    async function openProblem(id) {
+      activeProbId = id;
+      const res = await fetch(`/ng-api/problems/${id}`, { headers: ngHeaders() });
+      const p = await res.json();
+      document.getElementById("pMeta").textContent = `${p.code} • ${p.topic} • ${p.difficulty} • Checker: ${p.checker_type}`;
+      document.getElementById("pTitle").textContent = p.title;
+      document.getElementById("pStmt").textContent = p.statement;
+      document.getElementById("pSamples").innerHTML = p.samples.map((s, i) => `
+        <div class="p-2.5 rounded-lg bg-[#060913] border border-slate-800 font-mono">
+          <strong>Sample ${i+1}</strong><br>In: ${s.input_data}<br>Out: <span class="text-emerald-300">${s.expected_output}</span>
+        </div>
+      `).join("");
+      document.getElementById("ngEditor").value = "import sys\n# Write your solution\n";
+      document.getElementById("ngVerdictBox").classList.add("hidden");
+    }
+
+    async function toggleBookmark() {
+      await fetch(`/ng-api/problems/${activeProbId}/bookmark`, { method: "POST", headers: ngHeaders() });
+      loadProblems();
+    }
+
+    async function runJudge(mode) {
+      const res = await fetch("/ng-api/judge/execute", {
+        method: "POST",
+        headers: ngHeaders(),
+        body: JSON.stringify({
+          problem_id: activeProbId,
+          language: document.getElementById("ngLangSelect").value,
+          code: document.getElementById("ngEditor").value,
+          mode,
+          custom_input: document.getElementById("ngCustomIn").value
+        })
+      });
+      const data = await res.json();
+      const box = document.getElementById("ngVerdictBox");
+      box.classList.remove("hidden");
+      const ok = data.verdict === "ACCEPTED";
+      box.className = ok ? "p-4 rounded-xl border border-emerald-600 bg-emerald-950/30 text-xs space-y-1" : "p-4 rounded-xl border border-rose-600 bg-rose-950/30 text-xs space-y-1";
+      box.innerHTML = `
+        <p class="font-bold text-sm ${ok ? 'text-emerald-300' : 'text-rose-300'}">${data.verdict} (${data.passed}/${data.total} cases • ${data.time_ms}ms • Similarity: ${data.plagiarism_score}%)</p>
+        ${data.error ? `<pre class="text-rose-200 font-mono">${data.error}</pre>` : ''}
+        ${(data.results || []).map(r => `<div class="font-mono">Case #${r.case}: ${r.status} | Actual: ${r.actual}</div>`).join("")}
+      `;
+    }
+
+    async function askAIMentor() {
+      const res = await fetch("/ng-api/ai-mentor/analyze", {
+        method: "POST",
+        headers: ngHeaders(),
+        body: JSON.stringify({ problem_id: activeProbId, code: document.getElementById("ngEditor").value, question: "Analyze" })
+      });
+      const d = await res.json();
+      document.getElementById("ngMentorOut").innerHTML = `<p><strong>Hint:</strong> ${d.progressive_hint}</p><p><strong>Complexity:</strong> ${d.complexity_analysis}</p><p>${d.logical_guidance}</p>`;
+    }
+
+    async function loadContestsAndRanks() {
+      const [cRes, rRes] = await Promise.all([
+        fetch("/ng-api/contests", { headers: ngHeaders() }),
+        fetch("/ng-api/rankings", { headers: ngHeaders() })
+      ]);
+      const contests = await cRes.json();
+      document.getElementById("ngContestList").innerHTML = contests.map(c => `
+        <div class="p-3.5 rounded-xl bg-[#060913] border border-slate-800 flex justify-between items-center">
+          <div>
+            <span class="text-[10px] px-2 py-0.5 rounded bg-purple-950 text-purple-300">${c.contest_type} • ${c.scope_tag}</span>
+            <p class="font-bold text-white mt-1">${c.title}</p>
+            <p class="text-slate-400">Duration: ${c.duration_mins}m • Penalty: ${c.penalty_mins}m</p>
+          </div>
+          <button onclick="regContest(${c.id}, ${c.is_private})" class="px-3 py-1.5 rounded-lg font-semibold ${c.registered ? 'bg-emerald-700' : 'bg-indigo-600'}">${c.registered ? 'Registered ✓' : 'Register'}</button>
+        </div>
+      `).join("");
+
+      const ranks = await rRes.json();
+      document.getElementById("ngLeaderboard").innerHTML = ranks.leaderboard.map(r => `
+        <div class="p-2.5 rounded-xl bg-[#060913] border border-slate-800 flex justify-between">
+          <span><strong>#${r.rank}</strong> ${r.user_name} (${r.university})</span>
+          <span class="text-purple-400 font-bold">Rating: ${r.rating} (Pred: ${r.predicted_next_rating})</span>
+        </div>
+      `).join("");
+    }
+
+    async function regContest(cid, isPriv) {
+      const code = isPriv ? (prompt("Enter Private Contest Code (e.g., VTU2026):") || "") : "";
+      await fetch(`/ng-api/contests/${cid}/register`, { method: "POST", headers: ngHeaders(), body: JSON.stringify({ team_name: "VTU Squad", access_code: code }) });
+      loadContestsAndRanks();
+    }
+
+    async function generateAIContest() {
+      await fetch("/ng-api/contests/ai-personalized", { method: "POST", headers: ngHeaders() });
+      loadContestsAndRanks();
+    }
+
+    async function loadAcademy() {
+      const res = await fetch("/ng-api/academy-and-analytics", { headers: ngHeaders() });
+      const d = await res.json();
+      document.getElementById("ngPathsList").innerHTML = d.learning_paths.map(p => `
+        <div class="p-3 rounded-xl bg-[#060913] border border-slate-800">
+          <span class="text-purple-400 font-bold">${p.level}: ${p.title}</span>
+          <p class="text-slate-400 mt-0.5">${p.description} (${p.topics.join(", ")})</p>
+        </div>
+      `).join("");
+      document.getElementById("ngTournamentsList").innerHTML = d.tournaments.map(t => `
+        <div class="p-2.5 rounded-xl bg-[#060913] border border-amber-800/50 flex justify-between">
+          <span><strong>${t.title}</strong> — ${t.stage}</span>
+          <span class="text-amber-300">${t.prize_badge}</span>
+        </div>
+      `).join("");
+    }
+
+    async function analyzeSkillGap() {
+      const res = await fetch("/ng-api/placement/skill-gap", {
+        method: "POST",
+        headers: ngHeaders(),
+        body: JSON.stringify({ resume_skills: document.getElementById("resumeSkillsInp").value, target_company: document.getElementById("targetCompSel").value })
+      });
+      const d = await res.json();
+      document.getElementById("skillGapOut").innerHTML = `
+        <div class="p-3 rounded-xl bg-[#060913] border border-emerald-800 space-y-1">
+          <p class="font-bold text-emerald-300">${d.company} Skill Match: ${d.match_pct}%</p>
+          <p>Gaps: ${d.skill_gaps.join(", ") || "None"}</p>
+          <p class="text-slate-300">${d.roadmap.join(" | ")}</p>
+        </div>
+      `;
+    }
+
+    async function loadCommunity() {
+      const res = await fetch("/ng-api/community", { headers: ngHeaders() });
+      const posts = await res.json();
+      document.getElementById("commFeed").innerHTML = posts.map(p => `
+        <div class="p-3 rounded-xl bg-[#060913] border border-slate-800">
+          <span class="text-purple-400 font-bold">[${p.post_type}] ${p.title}</span> • <span class="text-slate-400">${p.user_name}</span>
+          <p class="text-slate-300 mt-1">${p.body}</p>
+        </div>
+      `).join("");
+    }
+
+    async function postCommunity(e) {
+      e.preventDefault();
+      await fetch("/ng-api/community", {
+        method: "POST",
+        headers: ngHeaders(),
+        body: JSON.stringify({ post_type: document.getElementById("commType").value, title: document.getElementById("commTitle").value, body: document.getElementById("commBody").value })
+      });
+      document.getElementById("commTitle").value = "";
+      document.getElementById("commBody").value = "";
+      loadCommunity();
+    }
+
+    async function adminAddProblem(e) {
+      e.preventDefault();
+      await fetch("/ng-api/admin/problems", {
+        method: "POST",
+        headers: ngHeaders(),
+        body: JSON.stringify({
+          code: document.getElementById("admCode").value,
+          title: document.getElementById("admTitle").value,
+          topic: document.getElementById("admTopic").value,
+          difficulty: document.getElementById("admDiff").value,
+          company_tag: "Google",
+          statement: document.getElementById("admStmt").value,
+          sample_input: document.getElementById("admSIn").value,
+          sample_output: document.getElementById("admSOut").value,
+          hidden_input: document.getElementById("admHIn").value,
+          hidden_output: document.getElementById("admHOut").value
+        })
+      });
+      alert("Problem & Hidden Test Cases Published!");
+    }
+  </script>
+</body>
+</html>

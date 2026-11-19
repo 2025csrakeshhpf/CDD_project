@@ -1,0 +1,2607 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Placement Training • Gamified Achievement Dashboard</title>
+  <script src="https://cdn.tailwindcss.com">
+    // -------------------- COMPETITIVE, CUSTOM STDIN, DISCUSSIONS & LEADERBOARD JS --------------------
+    let dailyChallengeProblemId = 1;
+
+    const origNav = navigate;
+    navigate = function(page) {
+      const compEl = document.getElementById("view-competitiveHub");
+      if (compEl) compEl.classList.add("hidden");
+      if (page === "competitiveHub") {
+        ["achievementDashboard", "topicProblems", "codingWorkspace", "aptitude", "interview", "aiSuggestions", "feedback"].forEach(v => {
+          const el = document.getElementById(`view-${v}`);
+          if (el) el.classList.add("hidden");
+        });
+        compEl.classList.remove("hidden");
+        document.querySelectorAll(".nav-btn").forEach(b => {
+          b.className = "nav-btn w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-medium bg-slate-900/70 text-slate-300 hover:bg-slate-800 text-left";
+        });
+        document.getElementById("nav-competitiveHub").className = "nav-btn w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-semibold bg-gradient-to-r from-indigo-600 to-purple-600 text-white text-left";
+        loadCompetitiveHub();
+        return;
+      }
+      origNav(page);
+      if (page === "achievementDashboard") loadDailyChallengeBanner();
+    };
+
+    async function loadDailyChallengeBanner() {
+      try {
+        const res = await api("/api/competitive/daily-challenge");
+        const data = await res.json();
+        if (data.problem) {
+          dailyChallengeProblemId = data.problem.id;
+          document.getElementById("dailyChallengeTitle").textContent = `#${data.problem.problem_number}: ${data.problem.title}`;
+          document.getElementById("dailyChallengeMeta").textContent = `${data.problem.topic} • ${data.problem.difficulty} • Asked at ${data.problem.company}`;
+        }
+      } catch (e) {}
+    }
+
+    function launchDailyChallenge() {
+      openCodingWorkspace(dailyChallengeProblemId);
+    }
+
+    function switchWsSubTab(tab) {
+      ["custom", "subs", "disc"].forEach(t => {
+        document.getElementById(`wsPane-${t}`).classList.add("hidden");
+        document.getElementById(`wsTab-${t}`).className = "px-3 py-1 rounded-lg bg-slate-800 text-slate-300";
+      });
+      document.getElementById(`wsPane-${tab}`).classList.remove("hidden");
+      document.getElementById(`wsTab-${tab}`).className = "px-3 py-1 rounded-lg bg-indigo-600 text-white font-semibold";
+      if (tab === "subs" && activeProblem) loadProblemSubmissions(activeProblem.id);
+      if (tab === "disc" && activeProblem) loadProblemDiscussions(activeProblem.id);
+    }
+
+    async function runCustomStdin() {
+      const res = await api("/api/competitive/custom-run", {
+        method: "POST",
+        body: JSON.stringify({
+          language: currentLang,
+          code: document.getElementById("wsEditor").value,
+          custom_input: document.getElementById("wsCustomStdin").value
+        })
+      });
+      const data = await res.json();
+      const out = document.getElementById("wsCustomOut");
+      out.classList.remove("hidden");
+      document.getElementById("wsCustomTime").textContent = `${data.status} • ${data.execution_time_ms} ms`;
+      out.textContent = data.error_message ? data.error_message : (data.output || "(No stdout output)");
+    }
+
+    async function loadProblemSubmissions(problemId) {
+      const res = await api(`/api/competitive/submissions/${problemId}`);
+      const items = await res.json();
+      document.getElementById("wsPane-subs").innerHTML = items.length
+        ? items.map(s => `
+            <div class="p-2 rounded-lg bg-[#060913] border border-slate-800 flex justify-between">
+              <span class="${s.passed ? 'text-emerald-400 font-bold' : 'text-rose-400'}">${s.verdict} (${s.passed_cases}/${s.total_cases})</span>
+              <span class="text-slate-400 uppercase font-mono">${s.language} • ${s.execution_time_ms}ms • ${s.submitted_at}</span>
+            </div>
+          `).join("")
+        : `<p class="text-slate-500">No submissions recorded for this problem yet.</p>`;
+    }
+
+    async function loadProblemDiscussions(problemId) {
+      const res = await api(`/api/competitive/discussions/${problemId}`);
+      const items = await res.json();
+      document.getElementById("wsDiscList").innerHTML = items.length
+        ? items.map(d => `
+            <div class="p-2.5 rounded-lg bg-[#060913] border border-slate-800">
+              <div class="flex justify-between text-[11px] text-indigo-300"><strong>${d.user_name}</strong><span>${d.approach_tag}</span></div>
+              <p class="text-slate-300 mt-1">${d.content}</p>
+            </div>
+          `).join("")
+        : `<p class="text-slate-500">No discussions yet. Share the first explanation!</p>`;
+    }
+
+    async function postProblemDiscussion(e) {
+      e.preventDefault();
+      if (!activeProblem) return;
+      await api(`/api/competitive/discussions/${activeProblem.id}`, {
+        method: "POST",
+        body: JSON.stringify({
+          approach_tag: document.getElementById("discApproachTag").value,
+          content: document.getElementById("discContentInp").value
+        })
+      });
+      document.getElementById("discContentInp").value = "";
+      loadProblemDiscussions(activeProblem.id);
+    }
+
+    async function loadCompetitiveHub() {
+      const [cRes, fRes, chRes] = await Promise.all([
+        api("/api/competitive/contests"),
+        api("/api/competitive/forum"),
+        api("/api/competitive/challenges")
+      ]);
+      const cData = await cRes.json();
+      document.getElementById("compUserRating").textContent = cData.user_rating.rating;
+      document.getElementById("compContestsPlayed").textContent = cData.user_rating.contests_played;
+
+      document.getElementById("weeklyContestsList").innerHTML = cData.contests.map(c => `
+        <div class="p-3.5 rounded-xl bg-[#060913] border border-slate-800 space-y-2">
+          <div class="flex justify-between items-center">
+            <strong class="text-white text-sm">${c.title}</strong>
+            <span class="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 text-[10px] font-bold">${c.status} (${c.duration_mins}m)</span>
+          </div>
+          <p class="text-slate-400">${c.description}</p>
+          <div class="flex flex-wrap gap-2 pt-1">
+            ${c.problems.map(p => `<button onclick="openCodingWorkspace(${p.id})" class="px-2.5 py-1 rounded bg-indigo-600/80 hover:bg-indigo-600 text-white font-semibold">Solve #${p.problem_number}: ${p.difficulty}</button>`).join("")}
+          </div>
+        </div>
+      `).join("");
+
+      const threads = await fRes.json();
+      document.getElementById("forumThreadsList").innerHTML = threads.map(t => `
+        <div class="p-2.5 rounded-xl bg-[#060913] border border-slate-800">
+          <p class="font-bold text-white">${t.title} <span class="text-slate-500 font-normal">• ${t.user_name}</span></p>
+          <p class="text-slate-300 mt-0.5">${t.body}</p>
+        </div>
+      `).join("");
+
+      const chs = await chRes.json();
+      document.getElementById("peerChallengesList").innerHTML = chs.length
+        ? chs.map(ch => `
+            <div class="p-2 rounded-lg bg-[#060913] border border-slate-800 flex justify-between items-center">
+              <span>${ch.challenger_name} vs ${ch.opponent_email} — <strong>${ch.problem_title}</strong></span>
+              <button onclick="openCodingWorkspace(${ch.problem_id})" class="px-2.5 py-1 rounded bg-emerald-600 text-white font-semibold">Accept</button>
+            </div>
+          `).join("")
+        : `<p class="text-slate-500">No active peer challenges yet.</p>`;
+
+      loadLeaderboards();
+    }
+
+    async function loadLeaderboards() {
+      const col = document.getElementById("lbCollegeFilter").value;
+      const res = await api(`/api/competitive/leaderboard?college=${encodeURIComponent(col)}`);
+      const rows = await res.json();
+      document.getElementById("leaderboardTableBody").innerHTML = rows.length
+        ? rows.map(r => `
+            <tr>
+              <td class="py-2 font-bold text-purple-400">#${r.rank}</td>
+              <td class="py-2 font-semibold text-white">${r.name}</td>
+              <td class="py-2 text-emerald-400 font-semibold">${r.solved_count}</td>
+              <td class="py-2 font-bold text-indigo-300">${r.rating}</td>
+            </tr>
+          `).join("")
+        : `<tr><td colspan="4" class="py-4 text-center text-slate-500">No eligible participants yet. Solve at least 1 coding problem or complete a contest to appear on the leaderboard.</td></tr>`;
+    }
+
+    async function sendPeerChallenge(e) {
+      e.preventDefault();
+      await api("/api/competitive/challenges", {
+        method: "POST",
+        body: JSON.stringify({
+          opponent_email: document.getElementById("peerEmailInp").value.trim(),
+          problem_id: Number(document.getElementById("peerProbIdInp").value)
+        })
+      });
+      document.getElementById("peerEmailInp").value = "";
+      loadCompetitiveHub();
+    }
+
+    async function createForumPost(e) {
+      e.preventDefault();
+      await api("/api/competitive/forum", {
+        method: "POST",
+        body: JSON.stringify({
+          title: document.getElementById("forumTitleInp").value,
+          body: document.getElementById("forumBodyInp").value
+        })
+      });
+      document.getElementById("forumTitleInp").value = "";
+      document.getElementById("forumBodyInp").value = "";
+      loadCompetitiveHub();
+    }
+
+    function runQuickPrepAssessment(track) {
+      const ws = document.getElementById("prepTrackWorkspace");
+      ws.classList.remove("hidden");
+      const qMap = {
+        "Verbal Ability": ["Choose the synonym of 'MITIGATE':", ["Alleviate", "Aggravate", "Ignore"], "Alleviate"],
+        "Technical MCQs": ["Which ACID property guarantees committed transactions survive crashes?", ["Durability", "Isolation", "Atomicity"], "Durability"],
+        "Programming Fundamentals": ["What is the worst-case lookup time complexity of a balanced Binary Search Tree?", ["O(log n)", "O(n^2)", "O(1)"], "O(log n)"]
+      };
+      const [q, opts, ans] = qMap[track];
+      ws.innerHTML = `
+        <p class="font-bold text-white">${track} Timed Check: ${q}</p>
+        <div class="flex flex-wrap gap-2">
+          ${opts.map(o => `<button onclick="gradePrepTrack('${track}', '${o}' === '${ans}')" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-indigo-600 text-white">${o}</button>`).join("")}
+        </div>
+        <p id="prepTrackFeedback" class="font-semibold"></p>
+      `;
+    }
+
+    async function gradePrepTrack(track, ok) {
+      const score = ok ? 100 : 0;
+      await api("/api/competitive/prep-tracks", { method: "POST", body: JSON.stringify({ track, score, time_taken_sec: 25 }) });
+      const fb = document.getElementById("prepTrackFeedback");
+      fb.className = ok ? "font-semibold text-emerald-400" : "font-semibold text-rose-400";
+      fb.textContent = ok ? "✅ Correct! Score (100%) saved to your Placement Analytics." : "❌ Incorrect. Score (0%) logged—review and retry.";
+    }
+  
+    // -------------------- REAL-TIME 1v1 DUEL SYSTEM JS --------------------
+    let activeDuelUid = "";
+    let duelWs = null;
+    let duelTimerInterval = null;
+    let duelRemainingSec = 0;
+    let duelStarters = {};
+    let lastTypingSent = 0;
+
+    const prevLoadComp = loadCompetitiveHub;
+    loadCompetitiveHub = async function() {
+      await prevLoadComp();
+      await loadDuelsDashboard();
+    };
+
+    async function loadDuelsDashboard() {
+      const res = await api("/api/duels/list");
+      const data = await res.json();
+
+      document.getElementById("duelNotifsContainer").innerHTML = (data.notifications || []).map(n => `
+        <div class="p-3 rounded-xl bg-purple-950/50 border border-purple-500/60 flex flex-wrap items-center justify-between gap-2">
+          <span class="text-purple-100 font-medium">${n.message}</span>
+          <div class="flex gap-1.5">
+            <button onclick="respondDuel('${n.challenge_uid}', 'accept')" class="bg-emerald-600 hover:bg-emerald-500 px-3 py-1 rounded-lg font-bold text-white">Accept</button>
+            <button onclick="respondDuel('${n.challenge_uid}', 'reject')" class="bg-rose-600 hover:bg-rose-500 px-3 py-1 rounded-lg font-bold text-white">Reject</button>
+          </div>
+        </div>
+      `).join("");
+
+      document.getElementById("duelsListContainer").innerHTML = (data.duels || []).map(d => {
+        const isPendingChallenger = d.status === "Pending" && d.challenger_email === currentUser.email;
+        const canEnter = ["Accepted", "Active", "Completed"].includes(d.status);
+        return `
+          <div class="p-2.5 rounded-xl bg-[#060913] border border-slate-800 flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <span class="font-mono text-purple-400 font-bold">#${d.challenge_uid}</span> •
+              <strong class="text-white">${d.problem_title}</strong> (${d.duration_mins}m)
+              <p class="text-[11px] text-slate-400">${d.challenger_name} vs ${d.opponent_name} • Status: <strong class="text-emerald-300">${d.status}</strong></p>
+            </div>
+            <div class="flex gap-1.5">
+              ${isPendingChallenger ? `<button onclick="respondDuel('${d.challenge_uid}', 'cancel')" class="px-2.5 py-1 rounded bg-slate-800 text-rose-300">Cancel</button>` : ""}
+              ${canEnter ? `<button onclick="openDuelArena('${d.challenge_uid}')" class="px-3 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-semibold">${d.status === 'Completed' ? 'View Results' : 'Enter Arena'}</button>` : ""}
+            </div>
+          </div>
+        `;
+      }).join("") || `<p class="text-slate-500">No 1v1 duels yet. Challenge a classmate above!</p>`;
+    }
+
+    async function createRealTimeDuel(e) {
+      e.preventDefault();
+      const res = await api("/api/duels/create", {
+        method: "POST",
+        body: JSON.stringify({
+          opponent_email: document.getElementById("duelOppEmail").value.trim(),
+          difficulty: document.getElementById("duelDiffSelect").value,
+          duration_mins: Number(document.getElementById("duelDurationSelect").value)
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) { alert(data.detail || "Unable to create duel."); return; }
+      document.getElementById("duelOppEmail").value = "";
+      loadDuelsDashboard();
+    }
+
+    async function respondDuel(uid, action) {
+      await api(`/api/duels/${uid}/respond?action=${action}`, { method: "POST" });
+      loadDuelsDashboard();
+      if (action === "accept") openDuelArena(uid);
+    }
+
+    async function openDuelArena(uid) {
+      activeDuelUid = uid;
+      document.getElementById("duelArenaModal").classList.remove("hidden");
+      connectDuelWebSocket(uid);
+      await syncDuelState();
+    }
+
+    function closeDuelArena() {
+      document.getElementById("duelArenaModal").classList.add("hidden");
+      clearInterval(duelTimerInterval);
+      if (duelWs) { duelWs.close(); duelWs = null; }
+      loadDuelsDashboard();
+    }
+
+    function connectDuelWebSocket(uid) {
+      if (duelWs) duelWs.close();
+      const wsProto = location.protocol === "https:" ? "wss:" : "ws:";
+      duelWs = new WebSocket(`${wsProto}//${location.port === "3000" ? "127.0.0.1:8000" : location.host}/ws/duel/${uid}?token=${encodeURIComponent(token)}`);
+      duelWs.onmessage = async (ev) => {
+        const msg = JSON.parse(ev.data);
+        const oppEl = document.getElementById("daOpponentStatus");
+        if (msg.type === "OPPONENT_CONNECTED") oppEl.textContent = "Opponent: Online 🟢";
+        if (msg.type === "OPPONENT_DISCONNECTED") oppEl.textContent = "Opponent: Reconnecting... 🟡";
+        if (msg.type === "OPPONENT_CODING") oppEl.textContent = `Opponent is coding (${msg.language})... ✍️`;
+        if (msg.type === "OPPONENT_RAN_CODE") oppEl.textContent = `Opponent ran samples (${msg.passed_cases}/${msg.total_cases} passed)`;
+        if (msg.type === "OPPONENT_SUBMITTED") {
+          oppEl.textContent = `Opponent submitted (${msg.verdict} • ${msg.passed_cases}/${msg.total_cases})`;
+          await syncDuelState();
+        }
+        if (msg.type === "READY_STATE" || msg.type === "STATUS_UPDATE") await syncDuelState();
+      };
+      duelWs.onclose = () => {
+        if (!document.getElementById("duelArenaModal").classList.contains("hidden")) {
+          setTimeout(() => connectDuelWebSocket(uid), 2000);
+        }
+      };
+    }
+
+    async function syncDuelState() {
+      const res = await api(`/api/duels/${activeDuelUid}`);
+      const data = await res.json();
+      const d = data.duel;
+      const p = data.problem;
+
+      document.getElementById("daUidLabel").textContent = `DUEL #${d.challenge_uid} • ${d.duration_mins} MIN`;
+      document.getElementById("daTitleLabel").textContent = `${d.challenger_name} vs ${d.opponent_name}`;
+      document.getElementById("daReadyStatusText").textContent = `Challenger Ready: ${d.challenger_ready ? "Yes ✅" : "No"} • Opponent Ready: ${d.opponent_ready ? "Yes ✅" : "No"}`;
+
+      duelStarters = p.starters || {};
+      document.getElementById("daProbTitle").textContent = `#${p.problem_number}: ${p.title} (${p.difficulty})`;
+      document.getElementById("daProbDesc").textContent = p.description;
+      document.getElementById("daProbIn").textContent = p.input_format;
+      document.getElementById("daProbOut").textContent = p.output_format;
+      document.getElementById("daProbCons").textContent = p.constraints;
+      document.getElementById("daProbSamples").innerHTML = p.samples.map((s, i) => `
+        <div class="p-2.5 rounded-xl bg-[#060913] border border-slate-800 font-mono">
+          <strong>Sample ${i+1}</strong><br>In: ${s.input_data}<br>Out: <span class="text-emerald-300">${s.expected_output}</span>
+        </div>
+      `).join("");
+
+      if (d.status === "Accepted") {
+        document.getElementById("daLobbyBanner").classList.remove("hidden");
+        document.getElementById("daWorkspaceGrid").classList.add("hidden");
+        document.getElementById("daFinalScoreboard").classList.add("hidden");
+      } else if (d.status === "Active") {
+        document.getElementById("daLobbyBanner").classList.add("hidden");
+        document.getElementById("daReadyBtn").classList.add("hidden");
+        document.getElementById("daWorkspaceGrid").classList.remove("hidden");
+        document.getElementById("daFinalScoreboard").classList.add("hidden");
+
+        if (!document.getElementById("daCodeEditor").value) {
+          document.getElementById("daCodeEditor").value = duelStarters["python"] || "";
+        }
+        startDuelCountdown(data.remaining_sec);
+      } else if (d.status === "Completed") {
+        clearInterval(duelTimerInterval);
+        document.getElementById("daLobbyBanner").classList.add("hidden");
+        document.getElementById("daWorkspaceGrid").classList.add("hidden");
+        renderDuelScoreboard(d, data.submissions);
+      }
+    }
+
+    function startDuelCountdown(sec) {
+      duelRemainingSec = sec;
+      clearInterval(duelTimerInterval);
+      duelTimerInterval = setInterval(async () => {
+        if (duelRemainingSec <= 0) {
+          clearInterval(duelTimerInterval);
+          await syncDuelState();
+          return;
+        }
+        duelRemainingSec--;
+        const m = String(Math.floor(duelRemainingSec / 60)).padStart(2, "0");
+        const s = String(duelRemainingSec % 60).padStart(2, "0");
+        document.getElementById("daCountdownTimer").textContent = `${m}:${s}`;
+      }, 1000);
+    }
+
+    async function markDuelReady() {
+      await api(`/api/duels/${activeDuelUid}/ready`, { method: "POST" });
+      await syncDuelState();
+    }
+
+    function switchDuelLang() {
+      const lang = document.getElementById("daLangSelect").value;
+      document.getElementById("daCodeEditor").value = duelStarters[lang] || "";
+    }
+
+    function notifyDuelTyping() {
+      if (!duelWs || duelWs.readyState !== WebSocket.OPEN) return;
+      const now = Date.now();
+      if (now - lastTypingSent > 1500) {
+        lastTypingSent = now;
+        duelWs.send(JSON.stringify({ type: "TYPING", language: document.getElementById("daLangSelect").value }));
+      }
+    }
+
+    async function runDuelCode() {
+      const res = await api(`/api/duels/${activeDuelUid}/run`, {
+        method: "POST",
+        body: JSON.stringify({
+          language: document.getElementById("daLangSelect").value,
+          code: document.getElementById("daCodeEditor").value,
+          custom_input: document.getElementById("daCustomStdin").value
+        })
+      });
+      const data = await res.json();
+      const box = document.getElementById("daJudgeResult");
+      box.classList.remove("hidden");
+      box.className = data.verdict === "ACCEPTED"
+        ? "p-3.5 rounded-xl border border-emerald-600 bg-emerald-950/30 text-emerald-200 space-y-1"
+        : "p-3.5 rounded-xl border border-rose-600 bg-rose-950/30 text-rose-200 space-y-1";
+      box.innerHTML = `<strong>Sample Run: ${data.verdict} (${data.passed_cases}/${data.total_cases} • ${data.execution_time_ms}ms)</strong>` +
+        (data.error_message ? `<pre class="font-mono mt-1">${data.error_message}</pre>` : "");
+    }
+
+    async function submitDuelCode() {
+      if (!confirm("Submit your final solution for this 1v1 Duel? You can only submit once.")) return;
+      const res = await api(`/api/duels/${activeDuelUid}/submit`, {
+        method: "POST",
+        body: JSON.stringify({
+          language: document.getElementById("daLangSelect").value,
+          code: document.getElementById("daCodeEditor").value
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) { alert(data.detail || "Submission error."); return; }
+      const box = document.getElementById("daJudgeResult");
+      box.classList.remove("hidden");
+      box.innerHTML = `<strong>Final Verdict: ${data.verdict} • Score: ${data.scores.total_score} pts (Passed ${data.passed_cases}/${data.total_cases} • ${data.execution_time_ms}ms • ${data.memory_kb}KB)</strong>`;
+      await syncDuelState();
+    }
+
+    function renderDuelScoreboard(duel, submissions) {
+      const board = document.getElementById("daFinalScoreboard");
+      board.classList.remove("hidden");
+      const headline = duel.is_draw ? "🤝 MATCH ENDED IN A DRAW!" : `🏆 WINNER: ${duel.winner_email}`;
+      board.innerHTML = `
+        <div class="flex justify-between items-center border-b border-slate-800 pb-3">
+          <h3 class="text-xl font-extrabold text-emerald-400">${headline}</h3>
+          <span class="text-xs text-purple-300 font-semibold">Rating Change: ${duel.is_draw ? '+5 / +5' : '+25 Winner / -15 Runner-Up'}</span>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+          ${submissions.map(s => `
+            <div class="p-4 rounded-xl bg-[#060913] border ${s.user_email === duel.winner_email ? 'border-emerald-500' : 'border-slate-800'} space-y-1">
+              <p class="font-bold text-sm text-white">${s.user_email} ${s.user_email === duel.winner_email ? '👑' : ''}</p>
+              <p class="text-emerald-300 font-bold text-base">Total Score: ${s.total_score} pts</p>
+              <p class="text-slate-400">Verdict: ${s.verdict} • Cases Passed: ${s.passed_cases}/${s.total_cases}</p>
+              <p class="text-slate-400">Breakdown: ${s.base_points} base + ${s.bonus_points} solve bonus + ${s.speed_bonus} speed bonus</p>
+              <p class="text-slate-400">Execution: ${s.exec_time_ms} ms • Memory: ${s.memory_kb} KB • Submitted: ${s.submitted_at}</p>
+            </div>
+          `).join("")}
+        </div>
+      `;
+    }
+  
+    // -------------------- REAL-TIME PEER CHALLENGE INVITATIONS & NOTIFICATIONS JS --------------------
+    let notifWs = null;
+
+    const origEnterApp = enterApp;
+    enterApp = async function() {
+      await origEnterApp();
+      connectNotificationWebSocket();
+      await loadInvitationInbox();
+      setInterval(() => { if (token) loadInvitationInbox(); }, 5000);
+    };
+
+    function connectNotificationWebSocket() {
+      if (!token) return;
+      if (notifWs) notifWs.close();
+      const wsProto = location.protocol === "https:" ? "wss:" : "ws:";
+      notifWs = new WebSocket(`${wsProto}//${location.port === "3000" ? "127.0.0.1:8000" : location.host}/ws/notifications?token=${encodeURIComponent(token)}`);
+      notifWs.onmessage = async (ev) => {
+        const msg = JSON.parse(ev.data);
+        await loadInvitationInbox();
+        if (msg.event === "INVITATION_ACCEPTED" && msg.competition_uid) {
+          if (confirm(`${msg.notification.message}\n\nEnter competition workspace now?`)) {
+            openDuelArena(msg.competition_uid);
+          }
+        }
+      };
+      notifWs.onclose = () => {
+        if (token) setTimeout(connectNotificationWebSocket, 2500);
+      };
+    }
+
+    function toggleNotifDrawer() {
+      const el = document.getElementById("notifBellDrawer");
+      el.classList.toggle("hidden");
+      if (!el.classList.contains("hidden")) loadInvitationInbox();
+    }
+
+    async function loadInvitationInbox() {
+      try {
+        const res = await api("/api/invitations/inbox");
+        const data = await res.json();
+
+        const badge = document.getElementById("notifBellBadge");
+        if (data.unread_count > 0) {
+          badge.textContent = data.unread_count;
+          badge.classList.remove("hidden");
+        } else {
+          badge.classList.add("hidden");
+        }
+
+        const histMap = {};
+        (data.history || []).forEach(h => { histMap[h.invitation_uid] = h; });
+
+        document.getElementById("notifBellList").innerHTML = (data.notifications || []).length
+          ? data.notifications.map(n => {
+              const inv = histMap[n.invitation_uid];
+              const isPendingInvite = n.notif_type === "CHALLENGE_INVITE" && inv && inv.status === "PENDING";
+              const canJoinAccepted = inv && inv.status === "ACCEPTED" && inv.competition_uid;
+              return `
+                <div class="p-3 rounded-xl bg-[#060913] border ${n.is_read ? 'border-slate-800' : 'border-purple-500'} space-y-2">
+                  <div class="flex justify-between items-start gap-2">
+                    <strong class="text-purple-300">${n.title}</strong>
+                    <span class="text-[10px] text-slate-500">${n.created_at}</span>
+                  </div>
+                  ${n.sender_profile ? `<p class="text-[11px] text-indigo-300">From: ${n.sender_profile}</p>` : ''}
+                  ${n.problem_title ? `<p class="text-[11px] text-slate-300">Problem: <strong>${n.problem_title}</strong> • Duration: <strong>${n.duration_mins} mins</strong></p>` : ''}
+                  <p class="text-slate-300">${n.message}</p>
+                  <div class="flex flex-wrap gap-2 pt-1">
+                    ${isPendingInvite ? `
+                      <button onclick="respondChallengeInvite('${n.invitation_uid}', 'accept')" class="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-3 py-1 rounded-lg">ACCEPT CHALLENGE</button>
+                      <button onclick="respondChallengeInvite('${n.invitation_uid}', 'reject')" class="bg-rose-600 hover:bg-rose-500 text-white font-bold px-3 py-1 rounded-lg">REJECT</button>
+                    ` : ''}
+                    ${canJoinAccepted ? `
+                      <button onclick="document.getElementById('notifBellDrawer').classList.add('hidden');openDuelArena('${inv.competition_uid}')" class="bg-indigo-600 hover:bg-indigo-500 text-white font-bold px-3 py-1 rounded-lg">Enter Competition Workspace →</button>
+                    ` : ''}
+                    ${!n.is_read && !isPendingInvite ? `
+                      <button onclick="markNotifRead(${n.id})" class="text-slate-400 hover:text-white underline">Mark Read</button>
+                    ` : ''}
+                  </div>
+                </div>
+              `;
+            }).join("")
+          : `<p class="text-slate-500">No notifications yet.</p>`;
+
+        const histBox = document.getElementById("invHistoryBox");
+        if (histBox) {
+          histBox.innerHTML = (data.history || []).map(h => `
+            <div class="p-2 rounded-lg bg-[#0c1122] border border-slate-800 flex justify-between items-center gap-2">
+              <span><strong>${h.sender_name}</strong> → <strong>${h.receiver_name}</strong> • ${h.problem_title} (${h.duration_mins}m)</span>
+              <div class="flex items-center gap-2">
+                <span class="font-bold ${h.status === 'ACCEPTED' ? 'text-emerald-400' : (h.status === 'REJECTED' ? 'text-rose-400' : 'text-amber-300')}">${h.status}</span>
+                ${h.status === 'ACCEPTED' && h.competition_uid ? `<button onclick="openDuelArena('${h.competition_uid}')" class="px-2 py-0.5 rounded bg-indigo-600 text-white font-semibold">Join</button>` : ''}
+              </div>
+            </div>
+          `).join("");
+        }
+      } catch (e) {}
+    }
+
+    async function sendChallengeInvite(e) {
+      e.preventDefault();
+      const banner = document.getElementById("invSendBanner");
+      const res = await api("/api/invitations/send", {
+        method: "POST",
+        body: JSON.stringify({
+          recipient_email: document.getElementById("invRecipientEmail").value.trim(),
+          problem_id: Number(document.getElementById("invProblemId").value),
+          duration_mins: Number(document.getElementById("invDurationMins").value)
+        })
+      });
+      const data = await res.json();
+      banner.classList.remove("hidden");
+      if (!res.ok) {
+        banner.className = "p-2.5 rounded-lg border border-rose-700 bg-rose-950/50 text-rose-200 text-xs";
+        banner.textContent = data.detail || "Unable to send invitation.";
+        return;
+      }
+      banner.className = "p-2.5 rounded-lg border border-emerald-700 bg-emerald-950/50 text-emerald-200 text-xs";
+      banner.textContent = `✅ ${data.message} (ID: #${data.invitation_uid})`;
+      document.getElementById("invRecipientEmail").value = "";
+      loadInvitationInbox();
+    }
+
+    async function respondChallengeInvite(invUid, action) {
+      const res = await api(`/api/invitations/${invUid}/${action}`, { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) { alert(data.detail || "Action failed."); return; }
+      await loadInvitationInbox();
+      if (action === "accept" && data.competition_uid) {
+        document.getElementById("notifBellDrawer").classList.add("hidden");
+        openDuelArena(data.competition_uid);
+      }
+    }
+
+    async function markNotifRead(id) {
+      await api(`/api/notifications/${id}/read`, { method: "POST" });
+      loadInvitationInbox();
+    }
+  </script>
+  <style>
+    body { background-color: #050811; }
+    .glow-green { box-shadow: 0 0 22px rgba(16, 185, 129, 0.22); }
+    .glow-purple { box-shadow: 0 0 24px rgba(139, 92, 246, 0.22); }
+    .ring-transition { transition: stroke-dashoffset 0.85s cubic-bezier(0.22, 1, 0.36, 1); }
+    @keyframes popCelebrate {
+      0% { transform: scale(0.88); opacity: 0; }
+      70% { transform: scale(1.04); opacity: 1; }
+      100% { transform: scale(1); opacity: 1; }
+    }
+    .celebrate-pop { animation: popCelebrate 0.45s ease-out forwards; }
+  </style>
+</head>
+<body class="text-slate-100 min-h-screen font-sans antialiased">
+
+  <!-- ==================== ACHIEVEMENT UNLOCK CELEBRATION TOAST ==================== -->
+  <div id="unlockToast" class="hidden fixed bottom-6 right-6 z-50 max-w-sm bg-gradient-to-r from-emerald-950 to-indigo-950 border-2 border-emerald-400 rounded-2xl p-4 shadow-2xl glow-green celebrate-pop">
+    <div class="flex items-start gap-3">
+      <div class="text-3xl" id="toastIcon">🏆</div>
+      <div class="flex-1">
+        <p class="text-[11px] font-bold uppercase tracking-wider text-emerald-400">Achievement Unlocked!</p>
+        <h4 class="text-sm font-bold text-white" id="toastTitle">First Step</h4>
+        <p class="text-xs text-slate-300 mt-0.5" id="toastDesc">Solve your first coding problem.</p>
+      </div>
+      <button onclick="document.getElementById('unlockToast').classList.add('hidden')" class="text-slate-400 hover:text-white text-xs">✕</button>
+    </div>
+  </div>
+
+  <!-- ==================== LOGIN / REGISTRATION GATEWAY ==================== -->
+  <div id="authGateway" class="min-h-screen flex items-center justify-center p-4 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-indigo-950/40 via-[#050811] to-black">
+    <div class="w-full max-w-md bg-[#0b1021] border border-slate-800/90 rounded-2xl shadow-2xl p-7 space-y-5">
+      <div class="text-center space-y-1">
+        <div class="w-12 h-12 rounded-xl bg-gradient-to-tr from-indigo-600 to-purple-600 mx-auto flex items-center justify-center font-bold text-lg text-white shadow-lg">PT</div>
+        <h1 class="text-xl font-bold text-white pt-1">Placement Training</h1>
+        <p class="text-xs text-slate-400">Gamified Developer Achievement & AI Career Platform</p>
+      </div>
+
+      <div id="authAlertBox" class="hidden p-3 rounded-lg text-xs border"></div>
+
+      <form id="loginForm" onsubmit="handleLogin(event)" class="space-y-4">
+        <div>
+          <label class="block text-xs font-medium text-slate-300 mb-1">Email Address</label>
+          <input id="loginEmail" type="email" required value="rakesh@vtu.ac.in" class="w-full bg-[#060913] border border-slate-700 rounded-lg px-3.5 py-2.5 text-sm text-white focus:border-purple-500 focus:outline-none" />
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-slate-300 mb-1">Password</label>
+          <div class="relative">
+            <input id="loginPassword" type="password" required value="rakesh123" class="w-full bg-[#060913] border border-slate-700 rounded-lg px-3.5 py-2.5 pr-16 text-sm text-white focus:border-purple-500 focus:outline-none" />
+            <button type="button" onclick="togglePass('loginPassword', this)" class="absolute right-3 top-2.5 text-xs text-slate-400 hover:text-white">Show</button>
+          </div>
+        </div>
+        <button type="submit" class="w-full bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-semibold py-2.5 rounded-lg text-sm">Launch Achievement Portal</button>
+        <p class="text-center text-xs text-slate-400 pt-2 border-t border-slate-800">
+          Don't have an account?
+          <button type="button" onclick="toggleAuthForm('register')" class="text-purple-400 font-semibold hover:underline ml-1">Create New Account</button>
+        </p>
+      </form>
+
+      <form id="registerForm" onsubmit="handleRegister(event)" class="hidden space-y-3.5">
+        <input id="regName" type="text" required placeholder="Full Name" class="w-full bg-[#060913] border border-slate-700 rounded-lg px-3.5 py-2 text-sm text-white" />
+        <input id="regUsn" type="text" placeholder="USN (e.g., 4IK25CS161)" class="w-full bg-[#060913] border border-slate-700 rounded-lg px-3.5 py-2 text-sm text-white" />
+        <input id="regEmail" type="email" required placeholder="Email Address" class="w-full bg-[#060913] border border-slate-700 rounded-lg px-3.5 py-2 text-sm text-white" />
+        <input id="regPassword" type="password" required minlength="6" placeholder="Password (min 6 chars)" class="w-full bg-[#060913] border border-slate-700 rounded-lg px-3.5 py-2 text-sm text-white" />
+        <input id="regConfirm" type="password" required minlength="6" placeholder="Confirm Password" class="w-full bg-[#060913] border border-slate-700 rounded-lg px-3.5 py-2 text-sm text-white" />
+        <button type="submit" class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-semibold py-2.5 rounded-lg text-sm">Register Account</button>
+        <p class="text-center text-xs text-slate-400">
+          Already registered?
+          <button type="button" onclick="toggleAuthForm('login')" class="text-purple-400 font-semibold hover:underline ml-1">Back to Login</button>
+        </p>
+      </form>
+    </div>
+  </div>
+
+  <!-- ==================== MAIN APPLICATION SHELL ==================== -->
+  <div id="appShell" class="hidden min-h-screen flex flex-col lg:flex-row">
+    <!-- Sleek Dark Sidebar -->
+    <aside class="w-full lg:w-64 bg-[#090d1a] border-b lg:border-b-0 lg:border-r border-slate-800/80 flex flex-col justify-between shrink-0">
+      <div class="p-4 space-y-5">
+        <div class="flex items-center gap-3">
+          <div class="w-9 h-9 rounded-xl bg-gradient-to-tr from-indigo-600 to-purple-600 flex items-center justify-center font-bold text-white shadow">PT</div>
+          <div>
+            <h2 class="font-bold text-sm leading-tight">Placement Training</h2>
+            <p class="text-[11px] text-purple-400 font-medium">Achievement Edition</p>
+          </div>
+        </div>
+
+        <nav class="space-y-1.5">
+          <button onclick="navigate('achievementDashboard')" id="nav-achievementDashboard" class="nav-btn w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-semibold bg-gradient-to-r from-indigo-600 to-purple-600 text-white text-left">
+            <span>🏆</span><span>Coding Practice</span>
+          </button>
+          <button onclick="navigate('competitiveHub')" id="nav-competitiveHub" class="nav-btn w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-medium bg-slate-900/70 text-slate-300 hover:bg-slate-800 text-left">
+            <span>⚔️</span><span>Contests, Rank & Prep</span>
+          </button>
+          <button onclick="navigate('aptitude')" id="nav-aptitude" class="nav-btn w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-medium bg-slate-900/70 text-slate-300 hover:bg-slate-800 text-left">
+            <span>🧠</span><span>Aptitude Practice (1,005)</span>
+          </button>
+          <button onclick="navigate('interview')" id="nav-interview" class="nav-btn w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-medium bg-slate-900/70 text-slate-300 hover:bg-slate-800 text-left">
+            <span>🎥</span><span>HR AI Video Interview</span>
+          </button>
+          <button onclick="navigate('aiSuggestions')" id="nav-aiSuggestions" class="nav-btn w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-medium bg-slate-900/70 text-slate-300 hover:bg-slate-800 text-left">
+            <span>✨</span><span>AI Improvement Plan</span>
+          </button>
+          <button onclick="navigate('feedback')" id="nav-feedback" class="nav-btn w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-medium bg-slate-900/70 text-slate-300 hover:bg-slate-800 text-left">
+            <span>📝</span><span>Bug & Suggestion Feedback</span>
+          </button>
+        </nav>
+      </div>
+
+            <div class="px-4 pb-2 relative">
+        <button id="notifBellBtn" onclick="toggleNotifDrawer()" class="w-full flex items-center justify-between px-3 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700 text-xs font-semibold text-slate-200">
+          <span class="flex items-center gap-2"><span>🔔</span><span>Challenge Alerts</span></span>
+          <span id="notifBellBadge" class="hidden px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-600 text-white">0</span>
+        </button>
+
+        <!-- Real-Time & Offline Notification Bell Dropdown -->
+        <div id="notifBellDrawer" class="hidden fixed lg:left-64 bottom-16 left-4 z-50 w-96 max-w-[92vw] bg-[#0c1122] border border-purple-500/60 rounded-2xl shadow-2xl p-4 space-y-3 text-xs">
+          <div class="flex items-center justify-between border-b border-slate-800 pb-2">
+            <strong class="text-sm text-white">🔔 Challenge Notifications</strong>
+            <button onclick="toggleNotifDrawer()" class="text-slate-400 hover:text-white">✕</button>
+          </div>
+          <div id="notifBellList" class="space-y-2.5 max-h-80 overflow-y-auto"></div>
+        </div>
+      </div>
+
+      <div class="p-4 border-t border-slate-800/80 space-y-2.5">
+        <div class="text-xs">
+          <p class="font-semibold text-white" id="userNameLabel">Rakesh HP</p>
+          <p class="text-[11px] text-slate-400" id="userMetaLabel">4IK25CS161 • rakesh@vtu.ac.in</p>
+        </div>
+        <button onclick="logout()" class="w-full bg-rose-600/90 hover:bg-rose-600 text-white text-xs font-semibold py-2 rounded-lg">Logout</button>
+      </div>
+    </aside>
+
+    <div class="flex-1 flex flex-col">
+      <main class="flex-1 p-5 lg:p-7 max-w-7xl w-full mx-auto space-y-6">
+
+        <!-- ==================== DESIGN 3: GAMIFIED ACHIEVEMENT DASHBOARD (CODING PRACTICE HOMEPAGE) ==================== -->
+        <section id="view-achievementDashboard" class="space-y-6">
+
+          <!-- 1. Top Welcome Hero + Streak + Daily Goal + Practice Time -->
+          <div class="bg-gradient-to-r from-[#0d1428] via-[#131836] to-[#0d1428] border border-purple-500/30 rounded-2xl p-6 glow-purple flex flex-wrap items-center justify-between gap-4">
+            <div class="space-y-1">
+              <span class="text-[11px] font-bold uppercase tracking-widest text-purple-400">Developer Achievement Arena</span>
+              <h1 class="text-2xl font-extrabold text-white" id="achWelcomeHeading">Welcome back, Rakesh HP</h1>
+              <p class="text-xs text-slate-400" id="achStudentSub">USN: 4IK25CS161 • VTU Computer Science • 15 Languages Supported</p>
+            </div>
+
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
+              <div class="bg-[#070b16]/90 border border-slate-800 px-4 py-2.5 rounded-xl">
+                <p class="text-[11px] text-slate-400">Current Streak</p>
+                <p class="text-lg font-extrabold text-amber-400 mt-0.5" id="achStreak">0 days</p>
+              </div>
+              <div class="bg-[#070b16]/90 border border-slate-800 px-4 py-2.5 rounded-xl">
+                <p class="text-[11px] text-slate-400">Daily Goal</p>
+                <p class="text-lg font-extrabold text-emerald-400 mt-0.5" id="achDailyGoal">0 / 5</p>
+              </div>
+              <div class="bg-[#070b16]/90 border border-slate-800 px-4 py-2.5 rounded-xl">
+                <p class="text-[11px] text-slate-400">Practice Time</p>
+                <p class="text-lg font-extrabold text-sky-400 mt-0.5" id="achPracticeTime">0 mins</p>
+              </div>
+              <div class="bg-[#070b16]/90 border border-slate-800 px-4 py-2.5 rounded-xl">
+                <p class="text-[11px] text-slate-400">Accuracy</p>
+                <p class="text-lg font-extrabold text-purple-400 mt-0.5" id="achAccuracy">0%</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Daily Coding Challenge Strip -->
+          <div class="bg-[#0b1021] border border-emerald-500/40 rounded-2xl p-4 flex flex-wrap items-center justify-between gap-3">
+            <div class="flex items-center gap-3">
+              <span class="px-2.5 py-1 rounded-lg bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 text-xs font-bold">📅 Daily Coding Challenge</span>
+              <div>
+                <p class="text-sm font-bold text-white" id="dailyChallengeTitle">Loading today's challenge...</p>
+                <p class="text-[11px] text-slate-400" id="dailyChallengeMeta">Streak bonus +1 day</p>
+              </div>
+            </div>
+            <button onclick="launchDailyChallenge()" class="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold px-4 py-2 rounded-xl">Solve Today's Challenge →</button>
+          </div>
+
+          <!-- 2. Circular Progress Ring + Difficulty Rings + Skill Radar Chart -->
+          <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            <!-- Left 6 Cols: Large Animated Circular Progress Ring + Easy/Medium/Hard Rings -->
+            <div class="lg:col-span-6 bg-[#0b1021] border border-slate-800/90 rounded-2xl p-6 flex flex-col justify-between space-y-5">
+              <div class="flex items-center justify-between">
+                <h2 class="text-base font-bold text-white">Overall Coding Completion</h2>
+                <span class="text-xs text-slate-400" id="achAttemptedLabel">0 attempted</span>
+              </div>
+
+              <div class="flex flex-col sm:flex-row items-center justify-around gap-6 py-2">
+                <!-- Main SVG Circular Ring -->
+                <div class="relative w-44 h-44 flex items-center justify-center">
+                  <svg class="w-44 h-44 -rotate-90" viewBox="0 0 160 160">
+                    <circle cx="80" cy="80" r="66" stroke="#1e293b" stroke-width="13" fill="none" />
+                    <circle id="mainProgressCircle" cx="80" cy="80" r="66" stroke="url(#neonGrad)" stroke-width="13"
+                      stroke-linecap="round" fill="none" stroke-dasharray="414.69" stroke-dashoffset="414.69" class="ring-transition" />
+                    <defs>
+                      <linearGradient id="neonGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+                        <stop offset="0%" stop-color="#8b5cf6" />
+                        <stop offset="50%" stop-color="#3b82f6" />
+                        <stop offset="100%" stop-color="#10b981" />
+                      </linearGradient>
+                    </defs>
+                  </svg>
+                  <div class="absolute text-center">
+                    <p class="text-2xl font-extrabold text-white" id="ringCenterPct">0%</p>
+                    <p class="text-[11px] text-emerald-400 font-semibold" id="ringCenterSolved">0 / 23,115</p>
+                    <p class="text-[10px] text-slate-400" id="ringCenterRem">23,115 left</p>
+                  </div>
+                </div>
+
+                <!-- Easy / Medium / Hard Circular Sub-Indicators -->
+                <div class="space-y-3.5 w-full sm:w-52">
+                  <div class="bg-[#060913] border border-emerald-900/60 p-3 rounded-xl flex items-center justify-between">
+                    <div>
+                      <p class="text-xs font-bold text-emerald-400">Easy</p>
+                      <p class="text-[11px] text-slate-400">Foundation tier</p>
+                    </div>
+                    <p class="text-base font-extrabold text-white" id="diffEasySolved">0 solved</p>
+                  </div>
+                  <div class="bg-[#060913] border border-amber-900/60 p-3 rounded-xl flex items-center justify-between">
+                    <div>
+                      <p class="text-xs font-bold text-amber-400">Medium</p>
+                      <p class="text-[11px] text-slate-400">Interview core</p>
+                    </div>
+                    <p class="text-base font-extrabold text-white" id="diffMedSolved">0 solved</p>
+                  </div>
+                  <div class="bg-[#060913] border border-rose-900/60 p-3 rounded-xl flex items-center justify-between">
+                    <div>
+                      <p class="text-xs font-bold text-rose-400">Hard</p>
+                      <p class="text-[11px] text-slate-400">Bar-raiser tier</p>
+                    </div>
+                    <p class="text-base font-extrabold text-white" id="diffHardSolved">0 solved</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Right 6 Cols: Interactive 10-Axis Skill Radar Chart -->
+            <div class="lg:col-span-6 bg-[#0b1021] border border-slate-800/90 rounded-2xl p-6 flex flex-col justify-between">
+              <div class="flex items-center justify-between">
+                <div>
+                  <h2 class="text-base font-bold text-white">Programming Skill Radar</h2>
+                  <p class="text-xs text-slate-400">Click any axis point to open that topic's problems</p>
+                </div>
+                <span id="radarHoverInfo" class="text-xs text-purple-300 font-semibold">10 Core Domains</span>
+              </div>
+
+              <div class="flex items-center justify-center my-1">
+                <svg id="skillRadarSvg" width="330" height="270" viewBox="0 0 330 270" class="overflow-visible"></svg>
+              </div>
+            </div>
+          </div>
+
+          <!-- 3. Achievement Cards Grid (8 Unlockable Badges) -->
+          <div class="space-y-3">
+            <div class="flex items-center justify-between">
+              <h2 class="text-base font-bold text-white">Developer Achievements</h2>
+              <span class="text-xs text-emerald-400 font-semibold" id="unlockedSummaryText">0 / 8 Unlocked</span>
+            </div>
+            <div id="achievementsGrid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4"></div>
+          </div>
+
+          <!-- 4. AI Performance Recommendations + Daily Coding Activity Heatmap + Recent Activity -->
+          <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            <!-- AI Recommendations (4 Cols) -->
+            <div class="lg:col-span-4 bg-[#0b1021] border border-indigo-800/50 rounded-2xl p-5 flex flex-col justify-between space-y-4">
+              <div class="space-y-2.5">
+                <h3 class="text-sm font-bold text-indigo-300 flex items-center gap-2"><span>✨</span><span>AI Performance Coach</span></h3>
+                <div id="dashAIRecommendations" class="space-y-2 text-xs"></div>
+              </div>
+              <button onclick="navigate('aiSuggestions')" class="w-full bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold py-2.5 rounded-xl">
+                View Improvement Plan →
+              </button>
+            </div>
+
+            <!-- 30-Day Daily Coding Activity Heatmap (4 Cols) -->
+            <div class="lg:col-span-4 bg-[#0b1021] border border-slate-800/90 rounded-2xl p-5 flex flex-col justify-between space-y-3">
+              <div>
+                <h3 class="text-sm font-bold text-white">30-Day Coding Activity</h3>
+                <p class="text-[11px] text-slate-400" id="heatmapStatsSub">Active Days: 0 • Longest Streak: 0 days</p>
+              </div>
+              <div id="codingHeatmapGrid" class="grid grid-cols-10 gap-1.5 py-2"></div>
+              <div class="flex items-center justify-end gap-1.5 text-[10px] text-slate-400">
+                <span>Less</span>
+                <span class="w-3 h-3 rounded bg-slate-800 inline-block"></span>
+                <span class="w-3 h-3 rounded bg-emerald-900 inline-block"></span>
+                <span class="w-3 h-3 rounded bg-emerald-600 inline-block"></span>
+                <span class="w-3 h-3 rounded bg-emerald-400 inline-block"></span>
+                <span>More</span>
+              </div>
+            </div>
+
+            <!-- Recent Activity Feed (4 Cols) -->
+            <div class="lg:col-span-4 bg-[#0b1021] border border-slate-800/90 rounded-2xl p-5 space-y-3">
+              <h3 class="text-sm font-bold text-white">Recent Activity</h3>
+              <div id="recentActivityFeed" class="space-y-2 text-xs max-h-48 overflow-y-auto"></div>
+            </div>
+          </div>
+
+          <!-- 5. Topic Achievement Cards (All 23 Topics with Explore Button & Green Mastery Badge) -->
+          <div class="space-y-3">
+            <div class="flex items-center justify-between">
+              <h2 class="text-base font-bold text-white">Topic Mastery & Problem Explorer</h2>
+              <span class="text-xs text-slate-400">1,005 Problems per Topic</span>
+            </div>
+            <div id="topicAchievementCards" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4"></div>
+          </div>
+        </section>
+
+        <!-- ==================== TOPIC PROBLEM LISTING PAGE (OPENS WHEN CLICKING TOPIC / EXPLORE) ==================== -->
+        <section id="view-topicProblems" class="hidden space-y-5">
+          <div class="flex flex-wrap items-center justify-between gap-3 bg-[#0b1021] border border-slate-800 p-4 rounded-2xl">
+            <div class="flex items-center gap-3">
+              <button onclick="navigate('achievementDashboard')" class="bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold px-3.5 py-2 rounded-xl">
+                ← Achievement Dashboard
+              </button>
+              <div>
+                <h2 class="text-base font-bold text-white" id="tpHeading">Arrays Problems</h2>
+                <p class="text-xs text-slate-400" id="tpSubHeading">1,005 Problems Available</p>
+              </div>
+            </div>
+
+            <div class="flex flex-wrap items-center gap-2">
+              <select id="tpTopicSelect" onchange="resetTopicListPage()" class="bg-[#060913] border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white"></select>
+              <select id="tpDiffSelect" onchange="resetTopicListPage()" class="bg-[#060913] border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white">
+                <option value="All">All Difficulties</option>
+                <option value="Easy">Easy</option>
+                <option value="Medium">Medium</option>
+                <option value="Hard">Hard</option>
+              </select>
+              <select id="tpCompanySelect" onchange="resetTopicListPage()" class="bg-[#060913] border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white">
+                <option value="All">All Companies</option>
+                <option>Google</option><option>Amazon</option><option>Microsoft</option>
+                <option>TCS</option><option>Infosys</option><option>Wipro</option><option>Accenture</option>
+              </select>
+              <input id="tpSearchInput" oninput="resetTopicListPage()" type="text" placeholder="Search problem..." class="bg-[#060913] border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white w-44" />
+            </div>
+          </div>
+
+          <div class="bg-[#0b1021] border border-slate-800 rounded-2xl overflow-hidden">
+            <div class="overflow-x-auto">
+              <table class="w-full text-left border-collapse">
+                <thead>
+                  <tr class="border-b border-slate-800 bg-[#060913] text-[11px] uppercase tracking-wider text-slate-400">
+                    <th class="py-3 px-4">#</th>
+                    <th class="py-3 px-4">Problem Title</th>
+                    <th class="py-3 px-4">Topic</th>
+                    <th class="py-3 px-4">Difficulty</th>
+                    <th class="py-3 px-4">Company</th>
+                    <th class="py-3 px-4">Status</th>
+                    <th class="py-3 px-4 text-right">Action</th>
+                  </tr>
+                </thead>
+                <tbody id="tpTableBody" class="divide-y divide-slate-800/80 text-sm"></tbody>
+              </table>
+            </div>
+            <div class="flex items-center justify-between px-4 py-3 border-t border-slate-800 bg-[#060913] text-xs">
+              <button onclick="changeTopicListPage(-1)" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700">← Previous 50</button>
+              <span id="tpPageLabel" class="text-slate-400">Showing 1 – 50 of 1,005</span>
+              <button onclick="changeTopicListPage(1)" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700">Next 50 →</button>
+            </div>
+          </div>
+        </section>
+
+        <!-- ==================== SEPARATE TWO-PANEL CODING WORKSPACE (ALL 15 LANGUAGES) ==================== -->
+        <section id="view-codingWorkspace" class="hidden space-y-4">
+          <div class="flex flex-wrap items-center justify-between gap-3 bg-[#0b1021] border border-slate-800 px-4 py-3 rounded-2xl">
+            <button onclick="navigate('topicProblems')" class="bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold px-3.5 py-2 rounded-xl">
+              ← Back to Topic Problems
+            </button>
+            <div class="flex items-center gap-3 text-xs">
+              <span id="wsSolvedBadge" class="px-3 py-1 rounded-full font-semibold bg-slate-800 text-slate-300">Unsolved</span>
+              <span class="font-mono text-slate-400" id="wsTimerText">Time: 00:00</span>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 lg:grid-cols-12 gap-5">
+            <!-- LEFT SIDE: Problem Statement, Description, Examples, Input/Output Format, Constraints, Hints -->
+            <div class="lg:col-span-5 bg-[#0b1021] border border-slate-800 rounded-2xl p-5 space-y-4 max-h-[780px] overflow-y-auto">
+              <div class="space-y-2 border-b border-slate-800 pb-3">
+                <div class="flex items-center gap-2 text-xs">
+                  <span id="wsDiffBadge" class="px-2.5 py-0.5 rounded font-semibold bg-purple-950 text-purple-300">Easy</span>
+                  <span id="wsTopicBadge" class="px-2.5 py-0.5 rounded bg-slate-800 text-slate-300">Arrays</span>
+                  <span id="wsCompanyBadge" class="px-2.5 py-0.5 rounded bg-slate-800 text-slate-300">Google</span>
+                </div>
+                <h2 class="text-lg font-bold text-white" id="wsTitle">Problem Title</h2>
+              </div>
+
+              <div class="space-y-3 text-xs leading-relaxed">
+                <p class="text-slate-300 text-sm" id="wsDescription"></p>
+                <div class="bg-[#060913] border border-slate-800 p-3 rounded-xl">
+                  <h4 class="font-semibold text-indigo-300 mb-1">Input Format</h4>
+                  <pre class="whitespace-pre-wrap text-slate-300 font-sans" id="wsInputFormat"></pre>
+                </div>
+                <div class="bg-[#060913] border border-slate-800 p-3 rounded-xl">
+                  <h4 class="font-semibold text-indigo-300 mb-1">Output Format</h4>
+                  <pre class="whitespace-pre-wrap text-slate-300 font-sans" id="wsOutputFormat"></pre>
+                </div>
+                <div class="bg-[#060913] border border-slate-800 p-3 rounded-xl">
+                  <h4 class="font-semibold text-indigo-300 mb-1">Constraints</h4>
+                  <pre class="whitespace-pre-wrap text-slate-300 font-mono" id="wsConstraints"></pre>
+                </div>
+                <div id="wsSampleCases" class="space-y-2"></div>
+
+                <div class="pt-2 border-t border-slate-800 space-y-2">
+                  <div class="flex items-center justify-between">
+                    <h4 class="font-semibold text-amber-300">Progressive Hints</h4>
+                    <button onclick="revealWorkspaceHint()" id="wsHintBtn" class="text-xs bg-amber-900/60 hover:bg-amber-800 text-amber-200 px-2.5 py-1 rounded-lg">Show Hint</button>
+                  </div>
+                  <div id="wsHintsBox" class="space-y-1.5"></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- RIGHT SIDE: All 15 Languages Dropdown, Editor, Run, Submit, Reset, Test Case Results -->
+            <div class="lg:col-span-7 flex flex-col gap-4">
+              <div class="bg-[#0b1021] border border-slate-800 rounded-2xl p-4 space-y-3">
+                <div class="flex flex-wrap items-center justify-between gap-2">
+                  <div class="flex items-center gap-2">
+                    <label class="text-xs font-semibold text-slate-300">Language (15 Supported):</label>
+                    <select id="wsLangSelect" onchange="switchWorkspaceLanguage()" class="bg-[#060913] border border-slate-700 rounded-lg px-3 py-1.5 text-xs font-medium text-white"></select>
+                    <span id="wsRuntimeLabel" class="text-[11px] text-slate-400"></span>
+                  </div>
+                  <button onclick="resetWorkspaceEditor()" class="bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs px-3 py-1.5 rounded-lg">Reset</button>
+                </div>
+
+                <textarea id="wsEditor" rows="15" spellcheck="false" oninput="queueDraftSave()" class="w-full bg-[#060913] border border-slate-700 rounded-xl p-3.5 font-mono text-sm text-emerald-300 focus:border-purple-500 focus:outline-none"></textarea>
+
+                <div class="flex flex-wrap items-center justify-between gap-2">
+                  <div class="flex items-center gap-2.5">
+                    <button onclick="executeWorkspaceCode('run')" id="wsRunBtn" class="bg-slate-800 hover:bg-slate-700 border border-slate-600 text-white text-xs font-semibold px-4 py-2.5 rounded-xl">▶ Run Code (Samples)</button>
+                    <button onclick="executeWorkspaceCode('submit')" id="wsSubmitBtn" class="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold px-5 py-2.5 rounded-xl">✓ Submit Code (All Cases)</button>
+                  </div>
+                  <span class="text-[11px] text-slate-400">Hidden test cases verified securely on backend</span>
+                </div>
+              </div>
+
+              <div id="wsResultPanel" class="hidden rounded-2xl border p-4 space-y-3 text-xs"></div>
+
+              <!-- Custom Stdin, Submission History & Problem Discussions Tabs -->
+              <div class="bg-[#0b1021] border border-slate-800 rounded-2xl p-4 space-y-3 text-xs">
+                <div class="flex gap-2 border-b border-slate-800 pb-2">
+                  <button onclick="switchWsSubTab('custom')" id="wsTab-custom" class="px-3 py-1 rounded-lg bg-indigo-600 text-white font-semibold">Custom Input (Stdin)</button>
+                  <button onclick="switchWsSubTab('subs')" id="wsTab-subs" class="px-3 py-1 rounded-lg bg-slate-800 text-slate-300">Submission History</button>
+                  <button onclick="switchWsSubTab('disc')" id="wsTab-disc" class="px-3 py-1 rounded-lg bg-slate-800 text-slate-300">Discussions & Approaches</button>
+                </div>
+
+                <!-- Custom Input Panel -->
+                <div id="wsPane-custom" class="space-y-2">
+                  <textarea id="wsCustomStdin" rows="3" placeholder="Enter custom stdin input to test your code..." class="w-full bg-[#060913] border border-slate-700 rounded-xl p-2.5 font-mono text-xs text-slate-200"></textarea>
+                  <div class="flex items-center justify-between">
+                    <button onclick="runCustomStdin()" class="bg-purple-600 hover:bg-purple-500 text-white px-3.5 py-1.5 rounded-lg font-semibold">Run Custom Input</button>
+                    <span id="wsCustomTime" class="font-mono text-slate-400"></span>
+                  </div>
+                  <pre id="wsCustomOut" class="hidden p-2.5 rounded-xl bg-[#060913] border border-slate-800 font-mono text-emerald-300 whitespace-pre-wrap"></pre>
+                </div>
+
+                <!-- Submission History Panel -->
+                <div id="wsPane-subs" class="hidden space-y-1.5 max-h-48 overflow-y-auto"></div>
+
+                <!-- Problem Discussions Panel -->
+                <div id="wsPane-disc" class="hidden space-y-2.5">
+                  <form onsubmit="postProblemDiscussion(event)" class="flex gap-2">
+                    <select id="discApproachTag" class="bg-[#060913] border border-slate-700 rounded-lg px-2 py-1.5">
+                      <option>Optimal O(n)</option><option>Two Pointers</option><option>Dynamic Programming</option><option>Explanation</option>
+                    </select>
+                    <input id="discContentInp" type="text" required placeholder="Share your intuition or time/space complexity..." class="flex-1 bg-[#060913] border border-slate-700 rounded-lg px-3 py-1.5 text-white" />
+                    <button type="submit" class="bg-indigo-600 px-3 py-1.5 rounded-lg font-semibold">Post</button>
+                  </form>
+                  <div id="wsDiscList" class="space-y-1.5 max-h-40 overflow-y-auto"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ==================== APTITUDE PRACTICE (1,005 QUESTIONS WITH GREEN/RED FEEDBACK) ==================== -->
+        <section id="view-aptitude" class="hidden space-y-5">
+          <div class="bg-[#0b1021] border border-slate-800 p-4 rounded-2xl flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 class="text-base font-bold">Aptitude & Logical Reasoning Bank (1,005 Questions)</h2>
+              <p class="text-xs text-slate-400">Select an option and click Check Answer for instant green/red verification and full solution.</p>
+            </div>
+            <div class="flex gap-2">
+              <select id="aptTopicFilter" onchange="aptOffset=0;loadAptitudeQuestions()" class="bg-[#060913] border border-slate-700 rounded-lg px-3 py-1.5 text-xs">
+                <option value="All">All Topics (1,005)</option>
+                <option value="Quantitative Aptitude">Quantitative Aptitude</option>
+                <option value="Logical Reasoning">Logical Reasoning</option>
+                <option value="Number Series">Number Series</option>
+                <option value="Percentage & Profit">Percentage & Profit</option>
+                <option value="Probability & Permutations">Probability & Permutations</option>
+              </select>
+            </div>
+          </div>
+          <div id="aptQuestionsList" class="space-y-4"></div>
+          <div class="flex items-center justify-between bg-[#0b1021] border border-slate-800 px-4 py-3 rounded-xl text-xs">
+            <button onclick="aptOffset=Math.max(0,aptOffset-20);loadAptitudeQuestions()" class="px-3 py-1.5 rounded bg-slate-800">← Previous 20</button>
+            <span id="aptPageInfo" class="text-slate-400">Showing 1 – 20 of 1,005</span>
+            <button onclick="aptOffset+=20;loadAptitudeQuestions()" class="px-3 py-1.5 rounded bg-slate-800">Next 20 →</button>
+          </div>
+        </section>
+
+        <!-- ==================== HR AI VIDEO INTERVIEW (PASS / FAIL VERDICT) ==================== -->
+        <section id="view-interview" class="hidden space-y-5">
+          <div class="bg-[#0b1021] border border-slate-800 p-4 rounded-2xl flex flex-wrap items-center justify-between gap-3">
+            <div class="flex items-center gap-3">
+              <select id="hrCompany" class="bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-sm">
+                <option>TCS</option><option>Infosys</option><option>Wipro</option>
+                <option>Accenture</option><option>Amazon</option><option>Google</option>
+              </select>
+              <span class="font-mono text-sm bg-[#060913] border border-slate-700 px-3 py-1.5 rounded-lg text-emerald-400" id="hrTimer">00:00</span>
+            </div>
+            <div class="flex gap-2">
+              <button onclick="startHRVideoInterview()" class="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-1.5 rounded-lg text-xs font-semibold">Start HR Video Interview</button>
+              <button onclick="endHRVideoInterview()" class="bg-rose-600 hover:bg-rose-500 text-white px-4 py-1.5 rounded-lg text-xs font-semibold">End & Get Pass/Fail Result</button>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 lg:grid-cols-12 gap-5">
+            <div class="lg:col-span-7 grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div class="bg-[#0b1021] border border-slate-800 rounded-2xl p-5 flex flex-col items-center justify-between min-h-[250px]">
+                <span class="self-start text-xs px-2.5 py-0.5 rounded bg-purple-950 text-purple-300">AI HR Interviewer</span>
+                <div class="w-24 h-24 rounded-full bg-gradient-to-tr from-indigo-600 to-purple-500 flex items-center justify-center text-3xl">👩‍💼</div>
+                <p class="text-xs text-slate-400" id="hrQCounter">Question 0 of 5</p>
+              </div>
+              <div class="bg-[#0b1021] border border-slate-800 rounded-2xl p-3 flex flex-col justify-between min-h-[250px]">
+                <span class="text-xs text-emerald-400">Student Live Webcam</span>
+                <video id="hrStudentVideo" autoplay muted playsinline class="w-full h-44 object-cover rounded-xl bg-[#060913] mt-1"></video>
+              </div>
+              <div class="sm:col-span-2 bg-[#0b1021] border border-slate-800 rounded-2xl p-4 space-y-3">
+                <p class="text-sm font-medium text-white bg-[#060913] border border-slate-800 p-3 rounded-xl" id="hrCurrentQuestionText">Click "Start HR Video Interview" to begin.</p>
+                <div class="flex gap-2">
+                  <button onclick="recordStudentVoice()" class="bg-rose-600 px-3 py-2 rounded-lg text-xs font-semibold">🎙️ Speak</button>
+                  <input id="hrStudentInput" type="text" placeholder="Type or speak your HR answer..." class="flex-1 bg-[#060913] border border-slate-700 rounded-lg px-3 py-2 text-sm text-white" />
+                  <button onclick="submitHRAnswerTurn()" class="bg-indigo-600 px-4 py-2 rounded-lg text-xs font-semibold">Answer →</button>
+                </div>
+              </div>
+            </div>
+            <div class="lg:col-span-5 bg-[#0b1021] border border-slate-800 rounded-2xl p-4 flex flex-col h-[470px]">
+              <h3 class="font-semibold text-sm border-b border-slate-800 pb-2 mb-3">HR Conversation Transcript</h3>
+              <div id="hrTranscriptList" class="flex-1 overflow-y-auto space-y-2 text-xs"></div>
+            </div>
+          </div>
+          <div id="hrVerdictCard" class="hidden rounded-2xl border-2 p-6"></div>
+        </section>
+
+        <!-- ==================== AI IMPROVEMENT PLAN & CHAT ==================== -->
+        <section id="view-aiSuggestions" class="hidden grid grid-cols-1 lg:grid-cols-12 gap-5">
+          <div class="lg:col-span-7 space-y-4">
+            <div class="bg-[#0b1021] border border-slate-800 p-5 rounded-2xl space-y-3">
+              <h2 class="text-base font-bold text-indigo-300">AI Improvement Recommendations</h2>
+              <div id="aiRecsList" class="space-y-2.5"></div>
+            </div>
+            <div class="bg-[#0b1021] border border-slate-800 p-5 rounded-2xl space-y-2">
+              <h3 class="text-base font-bold text-emerald-300">Personalized 5-Day Learning Plan</h3>
+              <div id="aiPlanList" class="space-y-2 text-xs"></div>
+            </div>
+          </div>
+          <div class="lg:col-span-5 bg-[#0b1021] border border-slate-800 p-5 rounded-2xl flex flex-col h-[500px]">
+            <h3 class="font-bold text-base mb-2">AI Career & Coding Assistant</h3>
+            <div id="aiChatBox" class="flex-1 overflow-y-auto space-y-2 text-xs mb-3"></div>
+            <form onsubmit="askAIChat(event)" class="flex gap-2">
+              <input id="aiChatInp" type="text" required placeholder="Ask AI about your progress..." class="flex-1 bg-[#060913] border border-slate-700 rounded-lg px-3 py-2 text-xs text-white" />
+              <button type="submit" class="bg-indigo-600 px-4 py-2 rounded-lg text-xs font-semibold">Ask</button>
+            </form>
+          </div>
+        </section>
+
+        <!-- ==================== BUG & SUGGESTION FEEDBACK ==================== -->
+        <section id="view-feedback" class="hidden grid grid-cols-1 lg:grid-cols-12 gap-6">
+          <div class="lg:col-span-5 bg-[#0b1021] border border-slate-800 p-5 rounded-2xl space-y-3 h-fit">
+            <h2 class="text-base font-bold">Submit Feedback or Bug Report</h2>
+            <form onsubmit="sendFeedback(event)" class="space-y-3">
+              <input id="fbSub" type="text" required placeholder="Subject" class="w-full bg-[#060913] border border-slate-700 rounded-lg px-3 py-2 text-xs text-white" />
+              <select id="fbCat" class="w-full bg-[#060913] border border-slate-700 rounded-lg px-3 py-2 text-xs text-white">
+                <option>Feature Requests</option><option>Website Issues</option><option>General Feedback</option>
+              </select>
+              <textarea id="fbTxt" rows="4" required placeholder="Description..." class="w-full bg-[#060913] border border-slate-700 rounded-lg px-3 py-2 text-xs text-white"></textarea>
+              <button type="submit" class="w-full bg-indigo-600 py-2 rounded-lg text-xs font-semibold">Submit</button>
+            </form>
+          </div>
+          <div class="lg:col-span-7 bg-[#0b1021] border border-slate-800 p-5 rounded-2xl space-y-2">
+            <h3 class="text-base font-bold">Submitted Feedback</h3>
+            <div id="fbList" class="space-y-2 text-xs"></div>
+          </div>
+        </section>
+
+              <!-- ==================== COMPETITIVE CONTESTS, LEADERBOARDS, FORUM & PLACEMENT PREP ==================== -->
+        <section id="view-competitiveHub" class="hidden space-y-6">
+          <!-- Competitive Rating Hero -->
+          <div class="bg-[#0b1021] border border-purple-500/40 rounded-2xl p-5 flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <span class="text-[11px] font-bold uppercase tracking-wider text-purple-400">Competitive Programming Arena</span>
+              <h2 class="text-xl font-extrabold text-white">Weekly Contests, Global & VTU Leaderboards</h2>
+            </div>
+            <div class="flex gap-3 text-center">
+              <div class="bg-[#060913] border border-slate-800 px-4 py-2 rounded-xl">
+                <p class="text-[10px] text-slate-400">Contest Rating</p>
+                <p class="text-lg font-extrabold text-purple-400" id="compUserRating">1200</p>
+              </div>
+              <div class="bg-[#060913] border border-slate-800 px-4 py-2 rounded-xl">
+                <p class="text-[10px] text-slate-400">Contests Played</p>
+                <p class="text-lg font-extrabold text-emerald-400" id="compContestsPlayed">0</p>
+              </div>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            <!-- Weekly Contests & Peer Challenges (6 Cols) -->
+            <div class="lg:col-span-6 space-y-4">
+              <div class="bg-[#0b1021] border border-slate-800 rounded-2xl p-5 space-y-3">
+                <h3 class="text-sm font-bold text-white">Live Weekly Coding Contests</h3>
+                <div id="weeklyContestsList" class="space-y-3 text-xs"></div>
+              </div>
+
+              <div class="bg-[#0b1021] border border-purple-500/40 rounded-2xl p-5 space-y-4">
+                <div class="flex items-center justify-between">
+                  <h3 class="text-sm font-bold text-purple-300">⚔️ Real-Time 1v1 Peer Coding Challenges</h3>
+                  <button onclick="loadDuelsDashboard()" class="text-[11px] bg-slate-800 hover:bg-slate-700 px-2.5 py-1 rounded-lg">Refresh</button>
+                </div>
+
+                <!-- In-App Challenge Notifications (Accept / Reject) -->
+                                <div id="duelNotifsContainer" class="space-y-2 text-xs"></div>
+
+                <!-- Send Peer Coding Challenge Invitation Form -->
+                <div class="p-3.5 rounded-xl bg-[#060913] border border-indigo-700/50 space-y-2.5 text-xs">
+                  <p class="font-bold text-indigo-300">Send Direct Peer Challenge Invitation</p>
+                  <div id="invSendBanner" class="hidden p-2.5 rounded-lg border text-xs"></div>
+                  <form onsubmit="sendChallengeInvite(event)" class="grid grid-cols-1 sm:grid-cols-12 gap-2">
+                    <input id="invRecipientEmail" type="email" required placeholder="Recipient email (e.g., rohit@vtu.ac.in)" class="sm:col-span-5 bg-[#0c1122] border border-slate-700 rounded-lg px-3 py-2 text-white" />
+                    <input id="invProblemId" type="number" min="1" value="1" title="Coding Problem ID" placeholder="Problem #" class="sm:col-span-3 bg-[#0c1122] border border-slate-700 rounded-lg px-2.5 py-2 text-white" />
+                    <select id="invDurationMins" class="sm:col-span-2 bg-[#0c1122] border border-slate-700 rounded-lg px-2 py-2 text-white">
+                      <option value="15">15 min</option>
+                      <option value="30" selected>30 min</option>
+                      <option value="45">45 min</option>
+                      <option value="60">60 min</option>
+                    </select>
+                    <button type="submit" class="sm:col-span-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-lg py-2">Challenge</button>
+                  </form>
+                  <div id="invHistoryBox" class="space-y-1.5 max-h-40 overflow-y-auto pt-1"></div>
+                </div>
+
+                <!-- Challenge Creation Form -->
+                <form onsubmit="createRealTimeDuel(event)" class="grid grid-cols-1 sm:grid-cols-12 gap-2 text-xs">
+                  <input id="duelOppEmail" type="email" required placeholder="Opponent email (e.g., peer@vtu.ac.in)" class="sm:col-span-5 bg-[#060913] border border-slate-700 rounded-lg px-3 py-2 text-white" />
+                  <select id="duelDiffSelect" class="sm:col-span-3 bg-[#060913] border border-slate-700 rounded-lg px-2 py-2 text-white">
+                    <option value="Easy">Easy</option><option value="Medium">Medium</option><option value="Hard">Hard</option>
+                  </select>
+                  <select id="duelDurationSelect" class="sm:col-span-2 bg-[#060913] border border-slate-700 rounded-lg px-2 py-2 text-white">
+                    <option value="15">15m</option><option value="30" selected>30m</option><option value="45">45m</option><option value="60">60m</option>
+                  </select>
+                  <button type="submit" class="sm:col-span-2 bg-purple-600 hover:bg-purple-500 px-3 py-2 rounded-lg font-bold text-white">Duel</button>
+                </form>
+
+                <!-- Challenge History & Active Rooms -->
+                <div id="duelsListContainer" class="space-y-2 text-xs max-h-56 overflow-y-auto"></div>
+              </div>
+            </div>
+
+            <!-- Global & College-Wise Leaderboard (6 Cols) -->
+            <div class="lg:col-span-6 bg-[#0b1021] border border-slate-800 rounded-2xl p-5 space-y-3">
+              <div class="flex items-center justify-between">
+                <h3 class="text-sm font-bold text-white">Student Rankings & Leaderboard</h3>
+                <select id="lbCollegeFilter" onchange="loadLeaderboards()" class="bg-[#060913] border border-slate-700 rounded-lg px-2.5 py-1 text-xs">
+                  <option value="All">Global Leaderboard</option>
+                  <option value="VTU">College-Wise (VTU)</option>
+                </select>
+              </div>
+              <div class="overflow-x-auto">
+                <table class="w-full text-left text-xs">
+                  <thead>
+                    <tr class="border-b border-slate-800 text-slate-400">
+                      <th class="py-2">Rank</th><th class="py-2">Student</th><th class="py-2">Solved</th><th class="py-2">Rating</th>
+                    </tr>
+                  </thead>
+                  <tbody id="leaderboardTableBody" class="divide-y divide-slate-800/70"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <!-- Timed Placement Prep Tracks (Verbal, Technical MCQs, Fundamentals) & Community Forum -->
+          <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            <div class="lg:col-span-6 bg-[#0b1021] border border-slate-800 rounded-2xl p-5 space-y-3 text-xs">
+              <h3 class="text-sm font-bold text-emerald-300">Timed Placement Assessment Tracks</h3>
+              <p class="text-slate-400">Verbal Ability • Technical MCQs • Programming Fundamentals</p>
+              <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                <button onclick="runQuickPrepAssessment('Verbal Ability')" class="p-3 rounded-xl bg-[#060913] border border-slate-700 hover:border-emerald-500 text-left">
+                  <p class="font-bold text-white">Verbal Ability</p>
+                  <p class="text-[11px] text-slate-400 mt-0.5">Grammar & Comprehension</p>
+                </button>
+                <button onclick="runQuickPrepAssessment('Technical MCQs')" class="p-3 rounded-xl bg-[#060913] border border-slate-700 hover:border-emerald-500 text-left">
+                  <p class="font-bold text-white">Technical MCQs</p>
+                  <p class="text-[11px] text-slate-400 mt-0.5">OS, DBMS, CN & OOPs</p>
+                </button>
+                <button onclick="runQuickPrepAssessment('Programming Fundamentals')" class="p-3 rounded-xl bg-[#060913] border border-slate-700 hover:border-emerald-500 text-left">
+                  <p class="font-bold text-white">Core Fundamentals</p>
+                  <p class="text-[11px] text-slate-400 mt-0.5">Pointers, Complexity & Logic</p>
+                </button>
+              </div>
+              <div id="prepTrackWorkspace" class="hidden p-3.5 rounded-xl bg-[#060913] border border-indigo-700/60 space-y-2.5"></div>
+            </div>
+
+            <div class="lg:col-span-6 bg-[#0b1021] border border-slate-800 rounded-2xl p-5 space-y-3 text-xs">
+              <h3 class="text-sm font-bold text-white">Community Discussion Forum</h3>
+              <form onsubmit="createForumPost(event)" class="flex gap-2">
+                <input id="forumTitleInp" type="text" required placeholder="Topic title..." class="w-1/3 bg-[#060913] border border-slate-700 rounded-lg px-2.5 py-1.5 text-white" />
+                <input id="forumBodyInp" type="text" required placeholder="Share interview experience or question..." class="flex-1 bg-[#060913] border border-slate-700 rounded-lg px-2.5 py-1.5 text-white" />
+                <button type="submit" class="bg-indigo-600 px-3 py-1.5 rounded-lg font-semibold">Post</button>
+              </form>
+              <div id="forumThreadsList" class="space-y-2 max-h-44 overflow-y-auto"></div>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <script>
+    const API = (location.port === "3000") ? "http://127.0.0.1:8000" : window.location.origin;
+    let token = localStorage.getItem("pt_token") || "";
+    let currentUser = null;
+    let all15Languages = [];
+
+    function headers() {
+      return { "Content-Type": "application/json", "Authorization": `Bearer ${token}` };
+    }
+
+    async function api(path, opts = {}) {
+      const res = await fetch(`${API}${path}`, { ...opts, headers: { ...headers(), ...(opts.headers || {}) } });
+      if (res.status === 401) { logout(); throw new Error("Unauthorized"); }
+      return res;
+    }
+
+    function togglePass(id, btn) {
+      const el = document.getElementById(id);
+      el.type = el.type === "password" ? "text" : "password";
+      btn.textContent = el.type === "password" ? "Show" : "Hide";
+    }
+
+    function toggleAuthForm(mode) {
+      document.getElementById("authAlertBox").classList.add("hidden");
+      document.getElementById("loginForm").classList.toggle("hidden", mode !== "login");
+      document.getElementById("registerForm").classList.toggle("hidden", mode !== "register");
+    }
+
+    function showAuthAlert(msg, ok = false) {
+      const box = document.getElementById("authAlertBox");
+      box.textContent = msg;
+      box.className = ok ? "p-3 rounded-lg text-xs border border-emerald-700 bg-emerald-950/50 text-emerald-200" : "p-3 rounded-lg text-xs border border-rose-700 bg-rose-950/50 text-rose-200";
+      box.classList.remove("hidden");
+    }
+
+    async function handleLogin(e) {
+      e.preventDefault();
+      const res = await fetch(`${API}/api/auth/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: document.getElementById("loginEmail").value.trim(), password: document.getElementById("loginPassword").value })
+      });
+      const data = await res.json();
+      if (!res.ok) { showAuthAlert(data.detail || "Login failed."); return; }
+      token = data.token;
+      currentUser = data.user;
+      localStorage.setItem("pt_token", token);
+      enterApp();
+    }
+
+    async function handleRegister(e) {
+      e.preventDefault();
+      const res = await fetch(`${API}/api/auth/register`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          full_name: document.getElementById("regName").value.trim(),
+          usn: document.getElementById("regUsn").value.trim() || "4IK25CS161",
+          email: document.getElementById("regEmail").value.trim(),
+          password: document.getElementById("regPassword").value,
+          confirm_password: document.getElementById("regConfirm").value
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) { showAuthAlert(data.detail || "Registration failed."); return; }
+      toggleAuthForm("login");
+      document.getElementById("loginEmail").value = data.email;
+      showAuthAlert("Registration successful! Please log in.", true);
+    }
+
+    function logout() {
+      token = "";
+      currentUser = null;
+      localStorage.removeItem("pt_token");
+      document.getElementById("appShell").classList.add("hidden");
+      document.getElementById("authGateway").classList.remove("hidden");
+    }
+
+    async function enterApp() {
+      document.getElementById("authGateway").classList.add("hidden");
+      document.getElementById("appShell").classList.remove("hidden");
+      document.getElementById("userNameLabel").textContent = currentUser.name;
+      document.getElementById("userMetaLabel").textContent = `${currentUser.usn} • ${currentUser.email}`;
+
+      // Load all 15 programming languages into the workspace selector
+      const langRes = await api("/api/languages");
+      all15Languages = await langRes.json();
+      document.getElementById("wsLangSelect").innerHTML = all15Languages
+        .map(l => `<option value="${l.slug}">${l.display_name}${l.is_supported ? "" : " (Host runtime missing)"}</option>`)
+        .join("");
+
+      navigate("achievementDashboard");
+    }
+
+    function navigate(page) {
+      ["achievementDashboard", "topicProblems", "codingWorkspace", "aptitude", "interview", "aiSuggestions", "feedback"].forEach(v => {
+        document.getElementById(`view-${v}`).classList.add("hidden");
+      });
+      document.getElementById(`view-${page}`).classList.remove("hidden");
+
+      const activeNav = (page === "topicProblems" || page === "codingWorkspace") ? "achievementDashboard" : page;
+      document.querySelectorAll(".nav-btn").forEach(b => {
+        b.className = "nav-btn w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-medium bg-slate-900/70 text-slate-300 hover:bg-slate-800 text-left";
+      });
+      const navEl = document.getElementById(`nav-${activeNav}`);
+      if (navEl) navEl.className = "nav-btn w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-semibold bg-gradient-to-r from-indigo-600 to-purple-600 text-white text-left";
+
+      if (page === "achievementDashboard") loadAchievementDashboard();
+      if (page === "topicProblems") loadTopicProblemTable();
+      if (page === "aptitude") loadAptitudeQuestions();
+      if (page === "aiSuggestions") loadAISuggestions();
+      if (page === "feedback") loadFeedback();
+    }
+
+    // -------------------- DESIGN 3: GAMIFIED ACHIEVEMENT DASHBOARD --------------------
+    async function loadAchievementDashboard() {
+      const res = await api("/api/coding/achievement-dashboard");
+      const data = await res.json();
+      const ov = data.overview;
+
+      document.getElementById("achWelcomeHeading").textContent = `Welcome back, ${data.student.name}`;
+      document.getElementById("achStudentSub").textContent = `USN: ${data.student.usn} • ${data.student.email} • 15 Programming Languages`;
+      document.getElementById("achStreak").textContent = `${ov.current_streak} days`;
+      document.getElementById("achDailyGoal").textContent = `${ov.daily_goal_done} / ${ov.daily_goal_target}`;
+      document.getElementById("achPracticeTime").textContent = `${ov.total_practice_mins} mins`;
+      document.getElementById("achAccuracy").textContent = `${ov.accuracy_pct}%`;
+      document.getElementById("achAttemptedLabel").textContent = `${ov.attempted_problems} attempted`;
+
+      // Animate Circular SVG Progress Ring
+      const circumference = 414.69;
+      const visualPct = ov.solved_problems === 0 ? 0 : Math.max(2, ov.completion_pct);
+      const offset = circumference - (visualPct / 100) * circumference;
+      document.getElementById("mainProgressCircle").style.strokeDashoffset = offset;
+      document.getElementById("ringCenterPct").textContent = `${ov.completion_pct}%`;
+      document.getElementById("ringCenterSolved").textContent = `${ov.solved_problems.toLocaleString()} / ${ov.total_problems.toLocaleString()}`;
+      document.getElementById("ringCenterRem").textContent = `${ov.remaining_problems.toLocaleString()} remaining`;
+
+      document.getElementById("diffEasySolved").textContent = `${ov.easy_solved} solved`;
+      document.getElementById("diffMedSolved").textContent = `${ov.medium_solved} solved`;
+      document.getElementById("diffHardSolved").textContent = `${ov.hard_solved} solved`;
+
+      // Render Interactive 10-Axis Skill Radar Chart
+      renderSkillRadar(data.radar);
+
+      // Render 8 Achievement Cards
+      const unlockedCnt = data.achievements.filter(a => a.unlocked).length;
+      document.getElementById("unlockedSummaryText").textContent = `${unlockedCnt} / ${data.achievements.length} Unlocked`;
+      document.getElementById("achievementsGrid").innerHTML = data.achievements.map(a => `
+        <div class="p-4 rounded-2xl border transition ${a.unlocked ? 'bg-gradient-to-br from-emerald-950/50 to-[#0b1021] border-emerald-500/70 glow-green' : 'bg-[#0b1021] border-slate-800/90 opacity-80'} space-y-2.5">
+          <div class="flex items-center justify-between">
+            <span class="text-2xl">${a.icon}</span>
+            <span class="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${a.unlocked ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40' : 'bg-slate-800 text-slate-400'}">
+              ${a.unlocked ? 'Unlocked' : 'Locked'}
+            </span>
+          </div>
+          <div>
+            <h4 class="text-xs font-bold text-white">${a.title}</h4>
+            <p class="text-[11px] text-slate-400 mt-0.5">${a.description}</p>
+          </div>
+          <div class="space-y-1">
+            <div class="flex justify-between text-[10px] text-slate-400">
+              <span>Progress</span>
+              <span>${a.current} / ${a.target}</span>
+            </div>
+            <div class="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
+              <div class="${a.unlocked ? 'bg-emerald-400' : 'bg-purple-500'} h-1.5 rounded-full" style="width: ${a.progress_pct}%"></div>
+            </div>
+          </div>
+        </div>
+      `).join("");
+
+      // Render AI Performance Recommendations
+      document.getElementById("dashAIRecommendations").innerHTML = data.ai_recommendations.map(r => `
+        <div class="p-3 rounded-xl bg-[#060913] border border-slate-800 text-slate-200 leading-relaxed">${r}</div>
+      `).join("");
+
+      // Render 30-Day Green Coding Activity Heatmap
+      document.getElementById("heatmapStatsSub").textContent = `Active Days: ${ov.active_days} • Current Streak: ${ov.current_streak}d • Longest: ${ov.longest_streak}d`;
+      document.getElementById("codingHeatmapGrid").innerHTML = data.heatmap.map(h => {
+        const bg = h.level === 0 ? "bg-slate-800" : (h.level === 1 ? "bg-emerald-900" : (h.level === 2 ? "bg-emerald-600" : "bg-emerald-400"));
+        return `<div title="${h.date}: ${h.solved} solved (${h.minutes} mins)" class="h-5 rounded ${bg} border border-slate-900/50"></div>`;
+      }).join("");
+
+      // Render Recent Activity Feed
+      document.getElementById("recentActivityFeed").innerHTML = data.recent_activity.length
+        ? data.recent_activity.map(act => `
+            <div class="p-2.5 rounded-xl bg-[#060913] border border-slate-800 flex items-center justify-between gap-2">
+              <span class="text-slate-200">${act.icon} ${act.message}</span>
+              <span class="text-[10px] text-slate-500 shrink-0">${act.time.split(" ")[1] || act.time}</span>
+            </div>
+          `).join("")
+        : `<p class="text-slate-500">No coding submissions yet. Explore any topic below to start!</p>`;
+
+      // Render Topic Achievement Cards
+      document.getElementById("topicAchievementCards").innerHTML = data.topics.map(t => `
+        <div class="bg-[#0b1021] border ${t.mastered ? 'border-emerald-500 glow-green' : 'border-slate-800/90 hover:border-purple-500/60'} rounded-2xl p-4 flex flex-col justify-between space-y-3 transition">
+          <div class="space-y-1.5">
+            <div class="flex items-center justify-between gap-2">
+              <h4 class="font-bold text-sm text-white truncate">${t.topic}</h4>
+              ${t.mastered ? '<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500">★ Mastered</span>' : `<span class="text-xs font-mono text-emerald-400">${t.solved}/${t.total}</span>`}
+            </div>
+            <p class="text-[11px] text-slate-400">Easy: ${t.difficulty_dist.Easy} • Med: ${t.difficulty_dist.Medium} • Hard: ${t.difficulty_dist.Hard}</p>
+            <div class="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
+              <div class="bg-gradient-to-r from-purple-500 to-emerald-400 h-1.5 rounded-full" style="width: ${t.solved > 0 ? Math.max(4, t.completion_pct) : 0}%"></div>
+            </div>
+          </div>
+          <button onclick="openTopicExplorer('${t.topic}')" class="w-full bg-slate-900 hover:bg-indigo-600 text-slate-200 hover:text-white border border-slate-700 hover:border-indigo-500 text-xs font-semibold py-2 rounded-xl transition">
+            Explore Problems →
+          </button>
+        </div>
+      `).join("");
+    }
+
+    function renderSkillRadar(axes) {
+      const svg = document.getElementById("skillRadarSvg");
+      const cx = 165, cy = 135, maxR = 88;
+      const n = axes.length;
+      let html = "";
+
+      // Concentric web rings
+      [0.25, 0.5, 0.75, 1.0].forEach(scale => {
+        const pts = axes.map((_, i) => {
+          const angle = (Math.PI * 2 * i) / n - Math.PI / 2;
+          return `${cx + maxR * scale * Math.cos(angle)},${cy + maxR * scale * Math.sin(angle)}`;
+        }).join(" ");
+        html += `<polygon points="${pts}" fill="none" stroke="#1e293b" stroke-width="1" />`;
+      });
+
+      // Axis lines & interactive clickable labels
+      axes.forEach((ax, i) => {
+        const angle = (Math.PI * 2 * i) / n - Math.PI / 2;
+        const x2 = cx + maxR * Math.cos(angle);
+        const y2 = cy + maxR * Math.sin(angle);
+        const lx = cx + (maxR + 24) * Math.cos(angle);
+        const ly = cy + (maxR + 18) * Math.sin(angle);
+        html += `<line x1="${cx}" y1="${cy}" x2="${x2}" y2="${y2}" stroke="#1e293b" stroke-width="1" />`;
+        html += `<text x="${lx}" y="${ly}" fill="#cbd5e1" font-size="9.5" text-anchor="middle" dominant-baseline="middle" class="cursor-pointer hover:fill-purple-400 font-semibold" onclick="openTopicExplorer('${ax.topic}')">${ax.label}</text>`;
+      });
+
+      // Student performance polygon
+      const dataPts = axes.map((ax, i) => {
+        const r = Math.max(8, (ax.score / 100) * maxR);
+        const angle = (Math.PI * 2 * i) / n - Math.PI / 2;
+        return `${cx + r * Math.cos(angle)},${cy + r * Math.sin(angle)}`;
+      }).join(" ");
+      html += `<polygon points="${dataPts}" fill="rgba(139, 92, 246, 0.28)" stroke="#10b981" stroke-width="2" />`;
+
+      // Interactive nodes
+      axes.forEach((ax, i) => {
+        const r = Math.max(8, (ax.score / 100) * maxR);
+        const angle = (Math.PI * 2 * i) / n - Math.PI / 2;
+        const px = cx + r * Math.cos(angle);
+        const py = cy + r * Math.sin(angle);
+        html += `<circle cx="${px}" cy="${py}" r="4" fill="#10b981" class="cursor-pointer" onmouseover="document.getElementById('radarHoverInfo').textContent='${ax.label}: ${ax.score}% (${ax.solved} solved)'" onclick="openTopicExplorer('${ax.topic}')" />`;
+      });
+
+      svg.innerHTML = html;
+    }
+
+    // -------------------- TOPIC PROBLEM LISTING PAGE --------------------
+    let tpOffset = 0;
+    const TP_PAGE_SIZE = 50;
+
+    function openTopicExplorer(topicName) {
+      tpOffset = 0;
+      navigate("topicProblems");
+      const sel = document.getElementById("tpTopicSelect");
+      if (sel.options.length > 0) sel.value = topicName;
+      loadTopicProblemTable(topicName);
+    }
+
+    function resetTopicListPage() {
+      tpOffset = 0;
+      loadTopicProblemTable();
+    }
+
+    function changeTopicListPage(delta) {
+      tpOffset = Math.max(0, tpOffset + delta * TP_PAGE_SIZE);
+      loadTopicProblemTable();
+    }
+
+    async function loadTopicProblemTable(forcedTopic = null) {
+      const sel = document.getElementById("tpTopicSelect");
+      const topic = forcedTopic || sel.value || "Arrays";
+      const diff = document.getElementById("tpDiffSelect").value;
+      const comp = document.getElementById("tpCompanySelect").value;
+      const search = document.getElementById("tpSearchInput").value.trim();
+
+      const res = await api(`/api/coding/problems?topic=${encodeURIComponent(topic)}&difficulty=${encodeURIComponent(diff)}&company=${encodeURIComponent(comp)}&search=${encodeURIComponent(search)}&limit=${TP_PAGE_SIZE}&offset=${tpOffset}`);
+      const data = await res.json();
+
+      if (sel.options.length === 0 && data.topics) {
+        sel.innerHTML = data.topics.map(t => `<option value="${t}">${t}</option>`).join("");
+      }
+      sel.value = topic;
+
+      document.getElementById("tpHeading").textContent = `${topic} Problems`;
+      document.getElementById("tpSubHeading").textContent = `${data.filtered_total.toLocaleString()} Problems Available`;
+
+      const startNum = data.filtered_total === 0 ? 0 : tpOffset + 1;
+      const endNum = Math.min(data.filtered_total, tpOffset + data.problems.length);
+      document.getElementById("tpPageLabel").textContent = `Showing ${startNum} – ${endNum} of ${data.filtered_total.toLocaleString()}`;
+
+      document.getElementById("tpTableBody").innerHTML = data.problems.map(p => {
+        const isSolved = p.status === "Solved";
+        const isAttempted = p.status === "Attempted";
+        const badgeHtml = isSolved
+          ? `<span class="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/60">✓ Solved</span>`
+          : (isAttempted
+            ? `<span class="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-amber-500/15 text-amber-300 border border-amber-600/50">Attempted</span>`
+            : `<span class="px-2.5 py-0.5 rounded-full text-[11px] bg-slate-800 text-slate-400">Unsolved</span>`);
+
+        return `
+          <tr class="hover:bg-slate-900/70 transition ${isSolved ? 'bg-emerald-950/10' : ''}">
+            <td class="py-3 px-4 font-mono text-xs text-slate-400">#${p.problem_number}</td>
+            <td class="py-3 px-4 font-semibold ${isSolved ? 'text-emerald-300' : 'text-white'}">${p.title}</td>
+            <td class="py-3 px-4 text-xs text-purple-300">${p.topic}</td>
+            <td class="py-3 px-4 text-xs">${p.difficulty}</td>
+            <td class="py-3 px-4 text-xs text-slate-300">${p.company}</td>
+            <td class="py-3 px-4">${badgeHtml}</td>
+            <td class="py-3 px-4 text-right">
+              <button onclick="openCodingWorkspace(${p.id})" class="bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white text-xs font-bold px-4 py-1.5 rounded-lg">
+                SOLVE
+              </button>
+            </td>
+          </tr>
+        `;
+      }).join("");
+    }
+
+    // -------------------- CODING WORKSPACE (ALL 15 LANGUAGES) --------------------
+    let activeProblem = null, currentLang = "python", hintsShown = 0, wsSeconds = 0, wsTimerHandle = null, draftTimer = null;
+
+    async function openCodingWorkspace(problemId) {
+      const res = await api(`/api/coding/problems/${problemId}`);
+      activeProblem = await res.json();
+      hintsShown = 0;
+      wsSeconds = 0;
+      navigate("codingWorkspace");
+
+      document.getElementById("wsTitle").textContent = `#${activeProblem.problem_number}: ${activeProblem.title}`;
+      document.getElementById("wsTopicBadge").textContent = activeProblem.topic;
+      document.getElementById("wsCompanyBadge").textContent = activeProblem.company;
+      document.getElementById("wsDiffBadge").textContent = activeProblem.difficulty;
+      document.getElementById("wsDescription").textContent = activeProblem.description;
+      document.getElementById("wsInputFormat").textContent = activeProblem.input_format;
+      document.getElementById("wsOutputFormat").textContent = activeProblem.output_format;
+      document.getElementById("wsConstraints").textContent = activeProblem.constraints;
+      document.getElementById("wsHintsBox").innerHTML = "";
+      document.getElementById("wsHintBtn").textContent = `Show Hint (0/${activeProblem.hints.length})`;
+      document.getElementById("wsResultPanel").classList.add("hidden");
+
+      const badge = document.getElementById("wsSolvedBadge");
+      badge.textContent = activeProblem.is_solved ? "✓ Solved" : "Unsolved";
+      badge.className = activeProblem.is_solved
+        ? "px-3 py-1 rounded-full font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500"
+        : "px-3 py-1 rounded-full font-semibold bg-slate-800 text-slate-300";
+
+      document.getElementById("wsSampleCases").innerHTML = activeProblem.sample_cases.map((sc, i) => `
+        <div class="bg-[#060913] border border-slate-800 p-3 rounded-xl font-mono text-xs">
+          <p class="font-sans font-semibold text-slate-400">Example ${i + 1}</p>
+          <p class="text-slate-300">Input:\n${sc.input}</p>
+          <p class="text-emerald-300">Expected Output: ${sc.expected}</p>
+        </div>
+      `).join("");
+
+      const pref = activeProblem.topic === "Database and SQL" ? "sql" : (activeProblem.preferred_language || "python");
+      const langSel = document.getElementById("wsLangSelect");
+      if ([...langSel.options].some(o => o.value === pref)) langSel.value = pref;
+      currentLang = langSel.value;
+      updateRuntimeInfo();
+      document.getElementById("wsEditor").value = activeProblem.drafts_by_language[currentLang] || activeProblem.starters_by_language[currentLang] || "";
+
+      clearInterval(wsTimerHandle);
+      wsTimerHandle = setInterval(() => {
+        wsSeconds++;
+        document.getElementById("wsTimerText").textContent = `Time: ${String(Math.floor(wsSeconds/60)).padStart(2,"0")}:${String(wsSeconds%60).padStart(2,"0")}`;
+      }, 1000);
+    }
+
+    function updateRuntimeInfo() {
+      const item = all15Languages.find(l => l.slug === currentLang);
+      document.getElementById("wsRuntimeLabel").textContent = item ? item.runtime_info : "";
+    }
+
+    function switchWorkspaceLanguage() {
+      if (!activeProblem) return;
+      activeProblem.drafts_by_language[currentLang] = document.getElementById("wsEditor").value;
+      currentLang = document.getElementById("wsLangSelect").value;
+      updateRuntimeInfo();
+      document.getElementById("wsEditor").value = activeProblem.drafts_by_language[currentLang] || activeProblem.starters_by_language[currentLang] || "";
+    }
+
+    function queueDraftSave() {
+      if (!activeProblem) return;
+      const code = document.getElementById("wsEditor").value;
+      activeProblem.drafts_by_language[currentLang] = code;
+      clearTimeout(draftTimer);
+      draftTimer = setTimeout(() => {
+        api("/api/coding/draft", { method: "POST", body: JSON.stringify({ problem_id: activeProblem.id, language: currentLang, code }) });
+      }, 600);
+    }
+
+    function resetWorkspaceEditor() {
+      if (!activeProblem) return;
+      document.getElementById("wsEditor").value = activeProblem.starters_by_language[currentLang] || "";
+    }
+
+    function revealWorkspaceHint() {
+      if (!activeProblem || hintsShown >= activeProblem.hints.length) return;
+      document.getElementById("wsHintsBox").innerHTML += `<div class="p-2.5 rounded-lg bg-amber-950/40 border border-amber-800 text-amber-200">${activeProblem.hints[hintsShown]}</div>`;
+      hintsShown++;
+      document.getElementById("wsHintBtn").textContent = `Show Hint (${hintsShown}/${activeProblem.hints.length})`;
+    }
+
+    async function executeWorkspaceCode(mode) {
+      if (!activeProblem) return;
+      const res = await api("/api/coding/execute", {
+        method: "POST",
+        body: JSON.stringify({
+          problem_id: activeProblem.id,
+          language: currentLang,
+          code: document.getElementById("wsEditor").value,
+          mode,
+          time_taken_sec: Math.max(5, wsSeconds)
+        })
+      });
+      const data = await res.json();
+      const panel = document.getElementById("wsResultPanel");
+      panel.classList.remove("hidden");
+      const ok = data.verdict === "ACCEPTED";
+      panel.className = ok
+        ? "rounded-2xl border border-emerald-500/70 bg-emerald-950/30 p-4 space-y-2 text-xs glow-green"
+        : "rounded-2xl border border-rose-500/70 bg-rose-950/30 p-4 space-y-2 text-xs";
+
+      panel.innerHTML = `
+        <p class="text-sm font-bold ${ok ? 'text-emerald-300' : 'text-rose-300'}">
+          ${ok ? (mode === 'submit' ? '✅ ACCEPTED — Problem Marked as Solved!' : '✅ Sample Cases Passed (Click Submit Code to complete)') : `❌ ${data.verdict}`}
+          • Passed ${data.passed_cases}/${data.total_cases} (${data.execution_time_ms} ms)
+        </p>
+        ${data.error_message ? `<pre class="p-2.5 rounded-xl bg-[#060913] text-rose-200 font-mono whitespace-pre-wrap">${data.error_message}</pre>` : ''}
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          ${(data.case_results || []).map(c => `
+            <div class="p-2.5 rounded-xl bg-[#060913] border ${c.passed ? 'border-emerald-800' : 'border-rose-800'} font-mono">
+              <strong>Case #${c.case_num} (${c.type}): ${c.status}</strong><br>
+              Expected: ${c.expected} | Actual: ${c.actual}
+            </div>
+          `).join("")}
+        </div>
+      `;
+
+      if (data.marked_solved) {
+        activeProblem.is_solved = true;
+        const badge = document.getElementById("wsSolvedBadge");
+        badge.textContent = "✓ Solved";
+        badge.className = "px-3 py-1 rounded-full font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500";
+      }
+
+      if (data.newly_unlocked && data.newly_unlocked.length > 0) {
+        const ach = data.newly_unlocked[0];
+        document.getElementById("toastIcon").textContent = ach.icon;
+        document.getElementById("toastTitle").textContent = ach.title;
+        document.getElementById("toastDesc").textContent = ach.description;
+        document.getElementById("unlockToast").classList.remove("hidden");
+      }
+    }
+
+    // -------------------- APTITUDE, HR VIDEO INTERVIEW, AI PLAN & FEEDBACK --------------------
+    let aptOffset = 0, selectedApt = {};
+    async function loadAptitudeQuestions() {
+      const topic = document.getElementById("aptTopicFilter").value;
+      const res = await api(`/api/aptitude/questions?topic=${encodeURIComponent(topic)}&limit=20&offset=${aptOffset}`);
+      const data = await res.json();
+      document.getElementById("aptPageInfo").textContent = `Showing ${aptOffset + 1} – ${Math.min(data.total, aptOffset + data.questions.length)} of ${data.total.toLocaleString()}`;
+      document.getElementById("aptQuestionsList").innerHTML = data.questions.map(q => `
+        <div class="bg-[#0b1021] border border-slate-800 p-5 rounded-2xl space-y-3">
+          <span class="text-xs px-2.5 py-0.5 rounded bg-indigo-950 text-indigo-300">${q.topic} • ${q.difficulty}</span>
+          <p class="text-sm font-semibold text-white">${q.question_text}</p>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            ${q.options.map(opt => `<button type="button" onclick="selectedApt[${q.id}]='${opt.replace(/'/g,"\\'")}';document.querySelectorAll('.ao-${q.id}').forEach(b=>b.classList.remove('border-purple-500'));this.classList.add('border-purple-500')" class="ao-${q.id} text-left p-2.5 rounded-xl bg-[#060913] border border-slate-700 text-xs">${opt}</button>`).join("")}
+          </div>
+          <button onclick="checkApt(${q.id})" class="bg-indigo-600 px-4 py-1.5 rounded-lg text-xs font-semibold">Check Answer</button>
+          <div id="aptFb-${q.id}" class="hidden p-3.5 rounded-xl border-2 text-xs"></div>
+        </div>
+      `).join("");
+    }
+
+    async function checkApt(qId) {
+      if (!selectedApt[qId]) return;
+      const res = await api("/api/aptitude/check", { method: "POST", body: JSON.stringify({ question_id: qId, selected_option: selectedApt[qId] }) });
+      const data = await res.json();
+      const box = document.getElementById(`aptFb-${qId}`);
+      box.classList.remove("hidden");
+      box.className = data.is_correct
+        ? "p-3.5 rounded-xl border-2 border-emerald-500 bg-emerald-950/60 text-emerald-200 text-xs"
+        : "p-3.5 rounded-xl border-2 border-rose-500 bg-rose-950/60 text-rose-200 text-xs";
+      box.innerHTML = `<p class="font-bold text-sm ${data.is_correct ? 'text-emerald-400' : 'text-rose-400'}">${data.is_correct ? '✅ Your answer is correct' : '❌ Your answer is wrong'}</p><p class="mt-1">${data.solution}</p>`;
+    }
+
+    let hrStream = null, hrTimer = null, hrSec = 0, hrQ = 0, hrLogs = [];
+    async function startHRVideoInterview() {
+      hrSec = 0; hrQ = 1; hrLogs = [];
+      document.getElementById("hrVerdictCard").classList.add("hidden");
+      try {
+        hrStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+        document.getElementById("hrStudentVideo").srcObject = hrStream;
+      } catch (e) {}
+      clearInterval(hrTimer);
+      hrTimer = setInterval(() => {
+        hrSec++;
+        document.getElementById("hrTimer").textContent = `${String(Math.floor(hrSec/60)).padStart(2,"0")}:${String(hrSec%60).padStart(2,"0")}`;
+      }, 1000);
+      const q1 = `Hello ${currentUser.name}! Tell me about yourself, your VTU academic background, and your engineering strengths.`;
+      document.getElementById("hrQCounter").textContent = "Question 1 of 5";
+      document.getElementById("hrCurrentQuestionText").textContent = q1;
+      hrLogs.push({ speaker: "HR", text: q1 });
+      document.getElementById("hrTranscriptList").innerHTML = `<div class="p-2 rounded bg-indigo-950/60"><strong>HR:</strong> ${q1}</div>`;
+      if ("speechSynthesis" in window) window.speechSynthesis.speak(new SpeechSynthesisUtterance(q1));
+    }
+
+    function recordStudentVoice() {
+      const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (!SR) return;
+      const r = new SR();
+      r.onresult = (e) => { document.getElementById("hrStudentInput").value += " " + e.results[0][0].transcript; };
+      r.start();
+    }
+
+    async function submitHRAnswerTurn() {
+      const inp = document.getElementById("hrStudentInput");
+      const ans = inp.value.trim();
+      if (!ans) return;
+      inp.value = "";
+      hrLogs.push({ speaker: "Student", text: ans });
+      document.getElementById("hrTranscriptList").innerHTML += `<div class="p-2 rounded bg-[#060913]"><strong>You:</strong> ${ans}</div>`;
+      const res = await api("/api/video-interview/turn", {
+        method: "POST",
+        body: JSON.stringify({ company: document.getElementById("hrCompany").value, mode: "HR", question_number: hrQ, student_answer: ans })
+      });
+      const data = await res.json();
+      hrQ = Math.min(5, hrQ + 1);
+      document.getElementById("hrQCounter").textContent = `Question ${hrQ} of 5`;
+      document.getElementById("hrCurrentQuestionText").textContent = data.ai_reply;
+      hrLogs.push({ speaker: "HR", text: data.ai_reply });
+      document.getElementById("hrTranscriptList").innerHTML += `<div class="p-2 rounded bg-indigo-950/60"><strong>HR:</strong> ${data.ai_reply}</div>`;
+      if ("speechSynthesis" in window) window.speechSynthesis.speak(new SpeechSynthesisUtterance(data.ai_reply));
+    }
+
+    async function endHRVideoInterview() {
+      clearInterval(hrTimer);
+      if (hrStream) hrStream.getTracks().forEach(t => t.stop());
+      const res = await api("/api/video-interview/finish", {
+        method: "POST",
+        body: JSON.stringify({ company: document.getElementById("hrCompany").value, mode: "HR", duration_sec: hrSec, transcript: hrLogs })
+      });
+      const data = await res.json();
+      const card = document.getElementById("hrVerdictCard");
+      card.classList.remove("hidden");
+      card.className = data.passed ? "rounded-2xl border-2 border-emerald-500 bg-emerald-950/50 p-6" : "rounded-2xl border-2 border-rose-500 bg-rose-950/50 p-6";
+      card.innerHTML = `<h3 class="text-xl font-bold ${data.passed ? 'text-emerald-400' : 'text-rose-400'}">${data.passed ? '🎉 PASSED THE INTERVIEW' : '❌ FAILED THE INTERVIEW'} (${data.overall_score}%)</h3><p class="text-sm mt-1">${data.feedback}</p>`;
+    }
+
+    async function loadAISuggestions() {
+      const res = await api("/api/ai/suggestions");
+      const data = await res.json();
+      document.getElementById("aiRecsList").innerHTML = data.recommendations.map(r => `<div class="p-3 rounded-xl bg-[#060913] border border-slate-800 text-xs">${r.advice}</div>`).join("");
+      document.getElementById("aiPlanList").innerHTML = data.learning_plan.map(p => `<div class="p-2.5 rounded-xl bg-[#060913] border border-slate-800"><strong>${p.day}:</strong> ${p.focus}</div>`).join("");
+    }
+
+    async function askAIChat(e) {
+      e.preventDefault();
+      const inp = document.getElementById("aiChatInp");
+      const msg = inp.value.trim();
+      if (!msg) return;
+      inp.value = "";
+      const box = document.getElementById("aiChatBox");
+      box.innerHTML += `<div class="p-2 rounded bg-slate-800"><strong>You:</strong> ${msg}</div>`;
+      const res = await api("/api/ai/chat", { method: "POST", body: JSON.stringify({ message: msg }) });
+      const data = await res.json();
+      box.innerHTML += `<div class="p-2.5 rounded bg-indigo-950/60 border border-indigo-800"><strong>AI:</strong> ${data.reply}</div>`;
+    }
+
+    async function sendFeedback(e) {
+      e.preventDefault();
+      await api("/api/feedback", { method: "POST", body: JSON.stringify({ subject: document.getElementById("fbSub").value, category: document.getElementById("fbCat").value, description: document.getElementById("fbTxt").value }) });
+      document.getElementById("fbSub").value = "";
+      document.getElementById("fbTxt").value = "";
+      loadFeedback();
+    }
+
+    async function loadFeedback() {
+      const res = await api("/api/feedback/my");
+      const items = await res.json();
+      document.getElementById("fbList").innerHTML = items.map(i => `<div class="p-3 rounded-xl bg-[#060913] border border-slate-800"><strong>${i.subject}</strong>: ${i.description}</div>`).join("");
+    }
+
+    (async function boot() {
+      if (!token) return;
+      try {
+        const res = await fetch(`${API}/api/auth/me`, { headers: headers() });
+        if (res.ok) { currentUser = await res.json(); enterApp(); }
+        else logout();
+      } catch (e) {}
+    })();
+  
+    // -------------------- COMPETITIVE, CUSTOM STDIN, DISCUSSIONS & LEADERBOARD JS --------------------
+    let dailyChallengeProblemId = 1;
+
+    const origNav = navigate;
+    navigate = function(page) {
+      const compEl = document.getElementById("view-competitiveHub");
+      if (compEl) compEl.classList.add("hidden");
+      if (page === "competitiveHub") {
+        ["achievementDashboard", "topicProblems", "codingWorkspace", "aptitude", "interview", "aiSuggestions", "feedback"].forEach(v => {
+          const el = document.getElementById(`view-${v}`);
+          if (el) el.classList.add("hidden");
+        });
+        compEl.classList.remove("hidden");
+        document.querySelectorAll(".nav-btn").forEach(b => {
+          b.className = "nav-btn w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-medium bg-slate-900/70 text-slate-300 hover:bg-slate-800 text-left";
+        });
+        document.getElementById("nav-competitiveHub").className = "nav-btn w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-semibold bg-gradient-to-r from-indigo-600 to-purple-600 text-white text-left";
+        loadCompetitiveHub();
+        return;
+      }
+      origNav(page);
+      if (page === "achievementDashboard") loadDailyChallengeBanner();
+    };
+
+    async function loadDailyChallengeBanner() {
+      try {
+        const res = await api("/api/competitive/daily-challenge");
+        const data = await res.json();
+        if (data.problem) {
+          dailyChallengeProblemId = data.problem.id;
+          document.getElementById("dailyChallengeTitle").textContent = `#${data.problem.problem_number}: ${data.problem.title}`;
+          document.getElementById("dailyChallengeMeta").textContent = `${data.problem.topic} • ${data.problem.difficulty} • Asked at ${data.problem.company}`;
+        }
+      } catch (e) {}
+    }
+
+    function launchDailyChallenge() {
+      openCodingWorkspace(dailyChallengeProblemId);
+    }
+
+    function switchWsSubTab(tab) {
+      ["custom", "subs", "disc"].forEach(t => {
+        document.getElementById(`wsPane-${t}`).classList.add("hidden");
+        document.getElementById(`wsTab-${t}`).className = "px-3 py-1 rounded-lg bg-slate-800 text-slate-300";
+      });
+      document.getElementById(`wsPane-${tab}`).classList.remove("hidden");
+      document.getElementById(`wsTab-${tab}`).className = "px-3 py-1 rounded-lg bg-indigo-600 text-white font-semibold";
+      if (tab === "subs" && activeProblem) loadProblemSubmissions(activeProblem.id);
+      if (tab === "disc" && activeProblem) loadProblemDiscussions(activeProblem.id);
+    }
+
+    async function runCustomStdin() {
+      const res = await api("/api/competitive/custom-run", {
+        method: "POST",
+        body: JSON.stringify({
+          language: currentLang,
+          code: document.getElementById("wsEditor").value,
+          custom_input: document.getElementById("wsCustomStdin").value
+        })
+      });
+      const data = await res.json();
+      const out = document.getElementById("wsCustomOut");
+      out.classList.remove("hidden");
+      document.getElementById("wsCustomTime").textContent = `${data.status} • ${data.execution_time_ms} ms`;
+      out.textContent = data.error_message ? data.error_message : (data.output || "(No stdout output)");
+    }
+
+    async function loadProblemSubmissions(problemId) {
+      const res = await api(`/api/competitive/submissions/${problemId}`);
+      const items = await res.json();
+      document.getElementById("wsPane-subs").innerHTML = items.length
+        ? items.map(s => `
+            <div class="p-2 rounded-lg bg-[#060913] border border-slate-800 flex justify-between">
+              <span class="${s.passed ? 'text-emerald-400 font-bold' : 'text-rose-400'}">${s.verdict} (${s.passed_cases}/${s.total_cases})</span>
+              <span class="text-slate-400 uppercase font-mono">${s.language} • ${s.execution_time_ms}ms • ${s.submitted_at}</span>
+            </div>
+          `).join("")
+        : `<p class="text-slate-500">No submissions recorded for this problem yet.</p>`;
+    }
+
+    async function loadProblemDiscussions(problemId) {
+      const res = await api(`/api/competitive/discussions/${problemId}`);
+      const items = await res.json();
+      document.getElementById("wsDiscList").innerHTML = items.length
+        ? items.map(d => `
+            <div class="p-2.5 rounded-lg bg-[#060913] border border-slate-800">
+              <div class="flex justify-between text-[11px] text-indigo-300"><strong>${d.user_name}</strong><span>${d.approach_tag}</span></div>
+              <p class="text-slate-300 mt-1">${d.content}</p>
+            </div>
+          `).join("")
+        : `<p class="text-slate-500">No discussions yet. Share the first explanation!</p>`;
+    }
+
+    async function postProblemDiscussion(e) {
+      e.preventDefault();
+      if (!activeProblem) return;
+      await api(`/api/competitive/discussions/${activeProblem.id}`, {
+        method: "POST",
+        body: JSON.stringify({
+          approach_tag: document.getElementById("discApproachTag").value,
+          content: document.getElementById("discContentInp").value
+        })
+      });
+      document.getElementById("discContentInp").value = "";
+      loadProblemDiscussions(activeProblem.id);
+    }
+
+    async function loadCompetitiveHub() {
+      const [cRes, fRes, chRes] = await Promise.all([
+        api("/api/competitive/contests"),
+        api("/api/competitive/forum"),
+        api("/api/competitive/challenges")
+      ]);
+      const cData = await cRes.json();
+      document.getElementById("compUserRating").textContent = cData.user_rating.rating;
+      document.getElementById("compContestsPlayed").textContent = cData.user_rating.contests_played;
+
+      document.getElementById("weeklyContestsList").innerHTML = cData.contests.map(c => `
+        <div class="p-3.5 rounded-xl bg-[#060913] border border-slate-800 space-y-2">
+          <div class="flex justify-between items-center">
+            <strong class="text-white text-sm">${c.title}</strong>
+            <span class="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 text-[10px] font-bold">${c.status} (${c.duration_mins}m)</span>
+          </div>
+          <p class="text-slate-400">${c.description}</p>
+          <div class="flex flex-wrap gap-2 pt-1">
+            ${c.problems.map(p => `<button onclick="openCodingWorkspace(${p.id})" class="px-2.5 py-1 rounded bg-indigo-600/80 hover:bg-indigo-600 text-white font-semibold">Solve #${p.problem_number}: ${p.difficulty}</button>`).join("")}
+          </div>
+        </div>
+      `).join("");
+
+      const threads = await fRes.json();
+      document.getElementById("forumThreadsList").innerHTML = threads.map(t => `
+        <div class="p-2.5 rounded-xl bg-[#060913] border border-slate-800">
+          <p class="font-bold text-white">${t.title} <span class="text-slate-500 font-normal">• ${t.user_name}</span></p>
+          <p class="text-slate-300 mt-0.5">${t.body}</p>
+        </div>
+      `).join("");
+
+      const chs = await chRes.json();
+      document.getElementById("peerChallengesList").innerHTML = chs.length
+        ? chs.map(ch => `
+            <div class="p-2 rounded-lg bg-[#060913] border border-slate-800 flex justify-between items-center">
+              <span>${ch.challenger_name} vs ${ch.opponent_email} — <strong>${ch.problem_title}</strong></span>
+              <button onclick="openCodingWorkspace(${ch.problem_id})" class="px-2.5 py-1 rounded bg-emerald-600 text-white font-semibold">Accept</button>
+            </div>
+          `).join("")
+        : `<p class="text-slate-500">No active peer challenges yet.</p>`;
+
+      loadLeaderboards();
+    }
+
+    async function loadLeaderboards() {
+      const col = document.getElementById("lbCollegeFilter").value;
+      const res = await api(`/api/competitive/leaderboard?college=${encodeURIComponent(col)}`);
+      const rows = await res.json();
+      document.getElementById("leaderboardTableBody").innerHTML = rows.length
+        ? rows.map(r => `
+            <tr>
+              <td class="py-2 font-bold text-purple-400">#${r.rank}</td>
+              <td class="py-2 font-semibold text-white">${r.name}</td>
+              <td class="py-2 text-emerald-400 font-semibold">${r.solved_count}</td>
+              <td class="py-2 font-bold text-indigo-300">${r.rating}</td>
+            </tr>
+          `).join("")
+        : `<tr><td colspan="4" class="py-4 text-center text-slate-500">No eligible participants yet. Solve at least 1 coding problem or complete a contest to appear on the leaderboard.</td></tr>`;
+    }
+
+    async function sendPeerChallenge(e) {
+      e.preventDefault();
+      await api("/api/competitive/challenges", {
+        method: "POST",
+        body: JSON.stringify({
+          opponent_email: document.getElementById("peerEmailInp").value.trim(),
+          problem_id: Number(document.getElementById("peerProbIdInp").value)
+        })
+      });
+      document.getElementById("peerEmailInp").value = "";
+      loadCompetitiveHub();
+    }
+
+    async function createForumPost(e) {
+      e.preventDefault();
+      await api("/api/competitive/forum", {
+        method: "POST",
+        body: JSON.stringify({
+          title: document.getElementById("forumTitleInp").value,
+          body: document.getElementById("forumBodyInp").value
+        })
+      });
+      document.getElementById("forumTitleInp").value = "";
+      document.getElementById("forumBodyInp").value = "";
+      loadCompetitiveHub();
+    }
+
+    function runQuickPrepAssessment(track) {
+      const ws = document.getElementById("prepTrackWorkspace");
+      ws.classList.remove("hidden");
+      const qMap = {
+        "Verbal Ability": ["Choose the synonym of 'MITIGATE':", ["Alleviate", "Aggravate", "Ignore"], "Alleviate"],
+        "Technical MCQs": ["Which ACID property guarantees committed transactions survive crashes?", ["Durability", "Isolation", "Atomicity"], "Durability"],
+        "Programming Fundamentals": ["What is the worst-case lookup time complexity of a balanced Binary Search Tree?", ["O(log n)", "O(n^2)", "O(1)"], "O(log n)"]
+      };
+      const [q, opts, ans] = qMap[track];
+      ws.innerHTML = `
+        <p class="font-bold text-white">${track} Timed Check: ${q}</p>
+        <div class="flex flex-wrap gap-2">
+          ${opts.map(o => `<button onclick="gradePrepTrack('${track}', '${o}' === '${ans}')" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-indigo-600 text-white">${o}</button>`).join("")}
+        </div>
+        <p id="prepTrackFeedback" class="font-semibold"></p>
+      `;
+    }
+
+    async function gradePrepTrack(track, ok) {
+      const score = ok ? 100 : 0;
+      await api("/api/competitive/prep-tracks", { method: "POST", body: JSON.stringify({ track, score, time_taken_sec: 25 }) });
+      const fb = document.getElementById("prepTrackFeedback");
+      fb.className = ok ? "font-semibold text-emerald-400" : "font-semibold text-rose-400";
+      fb.textContent = ok ? "✅ Correct! Score (100%) saved to your Placement Analytics." : "❌ Incorrect. Score (0%) logged—review and retry.";
+    }
+  
+    // -------------------- REAL-TIME 1v1 DUEL SYSTEM JS --------------------
+    let activeDuelUid = "";
+    let duelWs = null;
+    let duelTimerInterval = null;
+    let duelRemainingSec = 0;
+    let duelStarters = {};
+    let lastTypingSent = 0;
+
+    const prevLoadComp = loadCompetitiveHub;
+    loadCompetitiveHub = async function() {
+      await prevLoadComp();
+      await loadDuelsDashboard();
+    };
+
+    async function loadDuelsDashboard() {
+      const res = await api("/api/duels/list");
+      const data = await res.json();
+
+      document.getElementById("duelNotifsContainer").innerHTML = (data.notifications || []).map(n => `
+        <div class="p-3 rounded-xl bg-purple-950/50 border border-purple-500/60 flex flex-wrap items-center justify-between gap-2">
+          <span class="text-purple-100 font-medium">${n.message}</span>
+          <div class="flex gap-1.5">
+            <button onclick="respondDuel('${n.challenge_uid}', 'accept')" class="bg-emerald-600 hover:bg-emerald-500 px-3 py-1 rounded-lg font-bold text-white">Accept</button>
+            <button onclick="respondDuel('${n.challenge_uid}', 'reject')" class="bg-rose-600 hover:bg-rose-500 px-3 py-1 rounded-lg font-bold text-white">Reject</button>
+          </div>
+        </div>
+      `).join("");
+
+      document.getElementById("duelsListContainer").innerHTML = (data.duels || []).map(d => {
+        const isPendingChallenger = d.status === "Pending" && d.challenger_email === currentUser.email;
+        const canEnter = ["Accepted", "Active", "Completed"].includes(d.status);
+        return `
+          <div class="p-2.5 rounded-xl bg-[#060913] border border-slate-800 flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <span class="font-mono text-purple-400 font-bold">#${d.challenge_uid}</span> •
+              <strong class="text-white">${d.problem_title}</strong> (${d.duration_mins}m)
+              <p class="text-[11px] text-slate-400">${d.challenger_name} vs ${d.opponent_name} • Status: <strong class="text-emerald-300">${d.status}</strong></p>
+            </div>
+            <div class="flex gap-1.5">
+              ${isPendingChallenger ? `<button onclick="respondDuel('${d.challenge_uid}', 'cancel')" class="px-2.5 py-1 rounded bg-slate-800 text-rose-300">Cancel</button>` : ""}
+              ${canEnter ? `<button onclick="openDuelArena('${d.challenge_uid}')" class="px-3 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-semibold">${d.status === 'Completed' ? 'View Results' : 'Enter Arena'}</button>` : ""}
+            </div>
+          </div>
+        `;
+      }).join("") || `<p class="text-slate-500">No 1v1 duels yet. Challenge a classmate above!</p>`;
+    }
+
+    async function createRealTimeDuel(e) {
+      e.preventDefault();
+      const res = await api("/api/duels/create", {
+        method: "POST",
+        body: JSON.stringify({
+          opponent_email: document.getElementById("duelOppEmail").value.trim(),
+          difficulty: document.getElementById("duelDiffSelect").value,
+          duration_mins: Number(document.getElementById("duelDurationSelect").value)
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) { alert(data.detail || "Unable to create duel."); return; }
+      document.getElementById("duelOppEmail").value = "";
+      loadDuelsDashboard();
+    }
+
+    async function respondDuel(uid, action) {
+      await api(`/api/duels/${uid}/respond?action=${action}`, { method: "POST" });
+      loadDuelsDashboard();
+      if (action === "accept") openDuelArena(uid);
+    }
+
+    async function openDuelArena(uid) {
+      activeDuelUid = uid;
+      document.getElementById("duelArenaModal").classList.remove("hidden");
+      connectDuelWebSocket(uid);
+      await syncDuelState();
+    }
+
+    function closeDuelArena() {
+      document.getElementById("duelArenaModal").classList.add("hidden");
+      clearInterval(duelTimerInterval);
+      if (duelWs) { duelWs.close(); duelWs = null; }
+      loadDuelsDashboard();
+    }
+
+    function connectDuelWebSocket(uid) {
+      if (duelWs) duelWs.close();
+      const wsProto = location.protocol === "https:" ? "wss:" : "ws:";
+      duelWs = new WebSocket(`${wsProto}//${location.port === "3000" ? "127.0.0.1:8000" : location.host}/ws/duel/${uid}?token=${encodeURIComponent(token)}`);
+      duelWs.onmessage = async (ev) => {
+        const msg = JSON.parse(ev.data);
+        const oppEl = document.getElementById("daOpponentStatus");
+        if (msg.type === "OPPONENT_CONNECTED") oppEl.textContent = "Opponent: Online 🟢";
+        if (msg.type === "OPPONENT_DISCONNECTED") oppEl.textContent = "Opponent: Reconnecting... 🟡";
+        if (msg.type === "OPPONENT_CODING") oppEl.textContent = `Opponent is coding (${msg.language})... ✍️`;
+        if (msg.type === "OPPONENT_RAN_CODE") oppEl.textContent = `Opponent ran samples (${msg.passed_cases}/${msg.total_cases} passed)`;
+        if (msg.type === "OPPONENT_SUBMITTED") {
+          oppEl.textContent = `Opponent submitted (${msg.verdict} • ${msg.passed_cases}/${msg.total_cases})`;
+          await syncDuelState();
+        }
+        if (msg.type === "READY_STATE" || msg.type === "STATUS_UPDATE") await syncDuelState();
+      };
+      duelWs.onclose = () => {
+        if (!document.getElementById("duelArenaModal").classList.contains("hidden")) {
+          setTimeout(() => connectDuelWebSocket(uid), 2000);
+        }
+      };
+    }
+
+    async function syncDuelState() {
+      const res = await api(`/api/duels/${activeDuelUid}`);
+      const data = await res.json();
+      const d = data.duel;
+      const p = data.problem;
+
+      document.getElementById("daUidLabel").textContent = `DUEL #${d.challenge_uid} • ${d.duration_mins} MIN`;
+      document.getElementById("daTitleLabel").textContent = `${d.challenger_name} vs ${d.opponent_name}`;
+      document.getElementById("daReadyStatusText").textContent = `Challenger Ready: ${d.challenger_ready ? "Yes ✅" : "No"} • Opponent Ready: ${d.opponent_ready ? "Yes ✅" : "No"}`;
+
+      duelStarters = p.starters || {};
+      document.getElementById("daProbTitle").textContent = `#${p.problem_number}: ${p.title} (${p.difficulty})`;
+      document.getElementById("daProbDesc").textContent = p.description;
+      document.getElementById("daProbIn").textContent = p.input_format;
+      document.getElementById("daProbOut").textContent = p.output_format;
+      document.getElementById("daProbCons").textContent = p.constraints;
+      document.getElementById("daProbSamples").innerHTML = p.samples.map((s, i) => `
+        <div class="p-2.5 rounded-xl bg-[#060913] border border-slate-800 font-mono">
+          <strong>Sample ${i+1}</strong><br>In: ${s.input_data}<br>Out: <span class="text-emerald-300">${s.expected_output}</span>
+        </div>
+      `).join("");
+
+      if (d.status === "Accepted") {
+        document.getElementById("daLobbyBanner").classList.remove("hidden");
+        document.getElementById("daWorkspaceGrid").classList.add("hidden");
+        document.getElementById("daFinalScoreboard").classList.add("hidden");
+      } else if (d.status === "Active") {
+        document.getElementById("daLobbyBanner").classList.add("hidden");
+        document.getElementById("daReadyBtn").classList.add("hidden");
+        document.getElementById("daWorkspaceGrid").classList.remove("hidden");
+        document.getElementById("daFinalScoreboard").classList.add("hidden");
+
+        if (!document.getElementById("daCodeEditor").value) {
+          document.getElementById("daCodeEditor").value = duelStarters["python"] || "";
+        }
+        startDuelCountdown(data.remaining_sec);
+      } else if (d.status === "Completed") {
+        clearInterval(duelTimerInterval);
+        document.getElementById("daLobbyBanner").classList.add("hidden");
+        document.getElementById("daWorkspaceGrid").classList.add("hidden");
+        renderDuelScoreboard(d, data.submissions);
+      }
+    }
+
+    function startDuelCountdown(sec) {
+      duelRemainingSec = sec;
+      clearInterval(duelTimerInterval);
+      duelTimerInterval = setInterval(async () => {
+        if (duelRemainingSec <= 0) {
+          clearInterval(duelTimerInterval);
+          await syncDuelState();
+          return;
+        }
+        duelRemainingSec--;
+        const m = String(Math.floor(duelRemainingSec / 60)).padStart(2, "0");
+        const s = String(duelRemainingSec % 60).padStart(2, "0");
+        document.getElementById("daCountdownTimer").textContent = `${m}:${s}`;
+      }, 1000);
+    }
+
+    async function markDuelReady() {
+      await api(`/api/duels/${activeDuelUid}/ready`, { method: "POST" });
+      await syncDuelState();
+    }
+
+    function switchDuelLang() {
+      const lang = document.getElementById("daLangSelect").value;
+      document.getElementById("daCodeEditor").value = duelStarters[lang] || "";
+    }
+
+    function notifyDuelTyping() {
+      if (!duelWs || duelWs.readyState !== WebSocket.OPEN) return;
+      const now = Date.now();
+      if (now - lastTypingSent > 1500) {
+        lastTypingSent = now;
+        duelWs.send(JSON.stringify({ type: "TYPING", language: document.getElementById("daLangSelect").value }));
+      }
+    }
+
+    async function runDuelCode() {
+      const res = await api(`/api/duels/${activeDuelUid}/run`, {
+        method: "POST",
+        body: JSON.stringify({
+          language: document.getElementById("daLangSelect").value,
+          code: document.getElementById("daCodeEditor").value,
+          custom_input: document.getElementById("daCustomStdin").value
+        })
+      });
+      const data = await res.json();
+      const box = document.getElementById("daJudgeResult");
+      box.classList.remove("hidden");
+      box.className = data.verdict === "ACCEPTED"
+        ? "p-3.5 rounded-xl border border-emerald-600 bg-emerald-950/30 text-emerald-200 space-y-1"
+        : "p-3.5 rounded-xl border border-rose-600 bg-rose-950/30 text-rose-200 space-y-1";
+      box.innerHTML = `<strong>Sample Run: ${data.verdict} (${data.passed_cases}/${data.total_cases} • ${data.execution_time_ms}ms)</strong>` +
+        (data.error_message ? `<pre class="font-mono mt-1">${data.error_message}</pre>` : "");
+    }
+
+    async function submitDuelCode() {
+      if (!confirm("Submit your final solution for this 1v1 Duel? You can only submit once.")) return;
+      const res = await api(`/api/duels/${activeDuelUid}/submit`, {
+        method: "POST",
+        body: JSON.stringify({
+          language: document.getElementById("daLangSelect").value,
+          code: document.getElementById("daCodeEditor").value
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) { alert(data.detail || "Submission error."); return; }
+      const box = document.getElementById("daJudgeResult");
+      box.classList.remove("hidden");
+      box.innerHTML = `<strong>Final Verdict: ${data.verdict} • Score: ${data.scores.total_score} pts (Passed ${data.passed_cases}/${data.total_cases} • ${data.execution_time_ms}ms • ${data.memory_kb}KB)</strong>`;
+      await syncDuelState();
+    }
+
+    function renderDuelScoreboard(duel, submissions) {
+      const board = document.getElementById("daFinalScoreboard");
+      board.classList.remove("hidden");
+      const headline = duel.is_draw ? "🤝 MATCH ENDED IN A DRAW!" : `🏆 WINNER: ${duel.winner_email}`;
+      board.innerHTML = `
+        <div class="flex justify-between items-center border-b border-slate-800 pb-3">
+          <h3 class="text-xl font-extrabold text-emerald-400">${headline}</h3>
+          <span class="text-xs text-purple-300 font-semibold">Rating Change: ${duel.is_draw ? '+5 / +5' : '+25 Winner / -15 Runner-Up'}</span>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+          ${submissions.map(s => `
+            <div class="p-4 rounded-xl bg-[#060913] border ${s.user_email === duel.winner_email ? 'border-emerald-500' : 'border-slate-800'} space-y-1">
+              <p class="font-bold text-sm text-white">${s.user_email} ${s.user_email === duel.winner_email ? '👑' : ''}</p>
+              <p class="text-emerald-300 font-bold text-base">Total Score: ${s.total_score} pts</p>
+              <p class="text-slate-400">Verdict: ${s.verdict} • Cases Passed: ${s.passed_cases}/${s.total_cases}</p>
+              <p class="text-slate-400">Breakdown: ${s.base_points} base + ${s.bonus_points} solve bonus + ${s.speed_bonus} speed bonus</p>
+              <p class="text-slate-400">Execution: ${s.exec_time_ms} ms • Memory: ${s.memory_kb} KB • Submitted: ${s.submitted_at}</p>
+            </div>
+          `).join("")}
+        </div>
+      `;
+    }
+  
+    // -------------------- REAL-TIME PEER CHALLENGE INVITATIONS & NOTIFICATIONS JS --------------------
+    let notifWs = null;
+
+    const origEnterApp = enterApp;
+    enterApp = async function() {
+      await origEnterApp();
+      connectNotificationWebSocket();
+      await loadInvitationInbox();
+      setInterval(() => { if (token) loadInvitationInbox(); }, 5000);
+    };
+
+    function connectNotificationWebSocket() {
+      if (!token) return;
+      if (notifWs) notifWs.close();
+      const wsProto = location.protocol === "https:" ? "wss:" : "ws:";
+      notifWs = new WebSocket(`${wsProto}//${location.port === "3000" ? "127.0.0.1:8000" : location.host}/ws/notifications?token=${encodeURIComponent(token)}`);
+      notifWs.onmessage = async (ev) => {
+        const msg = JSON.parse(ev.data);
+        await loadInvitationInbox();
+        if (msg.event === "INVITATION_ACCEPTED" && msg.competition_uid) {
+          if (confirm(`${msg.notification.message}\n\nEnter competition workspace now?`)) {
+            openDuelArena(msg.competition_uid);
+          }
+        }
+      };
+      notifWs.onclose = () => {
+        if (token) setTimeout(connectNotificationWebSocket, 2500);
+      };
+    }
+
+    function toggleNotifDrawer() {
+      const el = document.getElementById("notifBellDrawer");
+      el.classList.toggle("hidden");
+      if (!el.classList.contains("hidden")) loadInvitationInbox();
+    }
+
+    async function loadInvitationInbox() {
+      try {
+        const res = await api("/api/invitations/inbox");
+        const data = await res.json();
+
+        const badge = document.getElementById("notifBellBadge");
+        if (data.unread_count > 0) {
+          badge.textContent = data.unread_count;
+          badge.classList.remove("hidden");
+        } else {
+          badge.classList.add("hidden");
+        }
+
+        const histMap = {};
+        (data.history || []).forEach(h => { histMap[h.invitation_uid] = h; });
+
+        document.getElementById("notifBellList").innerHTML = (data.notifications || []).length
+          ? data.notifications.map(n => {
+              const inv = histMap[n.invitation_uid];
+              const isPendingInvite = n.notif_type === "CHALLENGE_INVITE" && inv && inv.status === "PENDING";
+              const canJoinAccepted = inv && inv.status === "ACCEPTED" && inv.competition_uid;
+              return `
+                <div class="p-3 rounded-xl bg-[#060913] border ${n.is_read ? 'border-slate-800' : 'border-purple-500'} space-y-2">
+                  <div class="flex justify-between items-start gap-2">
+                    <strong class="text-purple-300">${n.title}</strong>
+                    <span class="text-[10px] text-slate-500">${n.created_at}</span>
+                  </div>
+                  ${n.sender_profile ? `<p class="text-[11px] text-indigo-300">From: ${n.sender_profile}</p>` : ''}
+                  ${n.problem_title ? `<p class="text-[11px] text-slate-300">Problem: <strong>${n.problem_title}</strong> • Duration: <strong>${n.duration_mins} mins</strong></p>` : ''}
+                  <p class="text-slate-300">${n.message}</p>
+                  <div class="flex flex-wrap gap-2 pt-1">
+                    ${isPendingInvite ? `
+                      <button onclick="respondChallengeInvite('${n.invitation_uid}', 'accept')" class="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-3 py-1 rounded-lg">ACCEPT CHALLENGE</button>
+                      <button onclick="respondChallengeInvite('${n.invitation_uid}', 'reject')" class="bg-rose-600 hover:bg-rose-500 text-white font-bold px-3 py-1 rounded-lg">REJECT</button>
+                    ` : ''}
+                    ${canJoinAccepted ? `
+                      <button onclick="document.getElementById('notifBellDrawer').classList.add('hidden');openDuelArena('${inv.competition_uid}')" class="bg-indigo-600 hover:bg-indigo-500 text-white font-bold px-3 py-1 rounded-lg">Enter Competition Workspace →</button>
+                    ` : ''}
+                    ${!n.is_read && !isPendingInvite ? `
+                      <button onclick="markNotifRead(${n.id})" class="text-slate-400 hover:text-white underline">Mark Read</button>
+                    ` : ''}
+                  </div>
+                </div>
+              `;
+            }).join("")
+          : `<p class="text-slate-500">No notifications yet.</p>`;
+
+        const histBox = document.getElementById("invHistoryBox");
+        if (histBox) {
+          histBox.innerHTML = (data.history || []).map(h => `
+            <div class="p-2 rounded-lg bg-[#0c1122] border border-slate-800 flex justify-between items-center gap-2">
+              <span><strong>${h.sender_name}</strong> → <strong>${h.receiver_name}</strong> • ${h.problem_title} (${h.duration_mins}m)</span>
+              <div class="flex items-center gap-2">
+                <span class="font-bold ${h.status === 'ACCEPTED' ? 'text-emerald-400' : (h.status === 'REJECTED' ? 'text-rose-400' : 'text-amber-300')}">${h.status}</span>
+                ${h.status === 'ACCEPTED' && h.competition_uid ? `<button onclick="openDuelArena('${h.competition_uid}')" class="px-2 py-0.5 rounded bg-indigo-600 text-white font-semibold">Join</button>` : ''}
+              </div>
+            </div>
+          `).join("");
+        }
+      } catch (e) {}
+    }
+
+    async function sendChallengeInvite(e) {
+      e.preventDefault();
+      const banner = document.getElementById("invSendBanner");
+      const res = await api("/api/invitations/send", {
+        method: "POST",
+        body: JSON.stringify({
+          recipient_email: document.getElementById("invRecipientEmail").value.trim(),
+          problem_id: Number(document.getElementById("invProblemId").value),
+          duration_mins: Number(document.getElementById("invDurationMins").value)
+        })
+      });
+      const data = await res.json();
+      banner.classList.remove("hidden");
+      if (!res.ok) {
+        banner.className = "p-2.5 rounded-lg border border-rose-700 bg-rose-950/50 text-rose-200 text-xs";
+        banner.textContent = data.detail || "Unable to send invitation.";
+        return;
+      }
+      banner.className = "p-2.5 rounded-lg border border-emerald-700 bg-emerald-950/50 text-emerald-200 text-xs";
+      banner.textContent = `✅ ${data.message} (ID: #${data.invitation_uid})`;
+      document.getElementById("invRecipientEmail").value = "";
+      loadInvitationInbox();
+    }
+
+    async function respondChallengeInvite(invUid, action) {
+      const res = await api(`/api/invitations/${invUid}/${action}`, { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) { alert(data.detail || "Action failed."); return; }
+      await loadInvitationInbox();
+      if (action === "accept" && data.competition_uid) {
+        document.getElementById("notifBellDrawer").classList.add("hidden");
+        openDuelArena(data.competition_uid);
+      }
+    }
+
+    async function markNotifRead(id) {
+      await api(`/api/notifications/${id}/read`, { method: "POST" });
+      loadInvitationInbox();
+    }
+  </script>
+  <!-- ==================== LIVE 1v1 DUEL ARENA MODAL OVERLAY ==================== -->
+  <div id="duelArenaModal" class="hidden fixed inset-0 z-50 bg-[#050711]/95 backdrop-blur overflow-y-auto p-4 lg:p-6">
+    <div class="max-w-7xl mx-auto space-y-4">
+      <!-- Top Duel Status & Live Opponent Telemetry Bar -->
+      <div class="bg-[#0c1122] border border-purple-500/40 rounded-2xl p-4 flex flex-wrap items-center justify-between gap-3">
+        <div class="flex items-center gap-3">
+          <button onclick="closeDuelArena()" class="bg-slate-800 hover:bg-slate-700 px-3 py-1.5 rounded-lg text-xs font-semibold">← Exit Arena</button>
+          <div>
+            <span class="text-[11px] font-mono text-purple-400" id="daUidLabel">DUEL #--------</span>
+            <h2 class="text-base font-bold text-white" id="daTitleLabel">1v1 Coding Duel</h2>
+          </div>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-3 text-xs">
+          <span id="daOpponentStatus" class="px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-700 text-amber-300 font-semibold">Opponent: Waiting...</span>
+          <span id="daCountdownTimer" class="px-3.5 py-1.5 rounded-xl bg-slate-950 border border-emerald-700 font-mono text-sm font-bold text-emerald-400">30:00</span>
+          <button id="daReadyBtn" onclick="markDuelReady()" class="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-1.5 rounded-xl font-bold">I'm Ready</button>
+        </div>
+      </div>
+
+      <!-- Ready Lobby Banner -->
+      <div id="daLobbyBanner" class="bg-indigo-950/50 border border-indigo-700 rounded-2xl p-4 text-center text-xs space-y-1">
+        <p class="font-bold text-indigo-200 text-sm">Waiting for both participants to click "I'm Ready" before starting the countdown...</p>
+        <p class="text-slate-300" id="daReadyStatusText">Challenger Ready: No • Opponent Ready: No</p>
+      </div>
+
+      <!-- Independent Two-Panel Duel Workspace -->
+      <div id="daWorkspaceGrid" class="hidden grid grid-cols-1 lg:grid-cols-12 gap-5">
+        <div class="lg:col-span-5 bg-[#0c1122] border border-slate-800 rounded-2xl p-5 space-y-3 text-xs max-h-[680px] overflow-y-auto">
+          <h3 class="text-base font-bold text-white" id="daProbTitle">Problem</h3>
+          <p class="text-slate-300 text-sm leading-relaxed" id="daProbDesc"></p>
+          <div class="bg-[#060913] border border-slate-800 p-3 rounded-xl"><strong>Input Format:</strong><pre class="whitespace-pre-wrap text-slate-300 font-sans mt-1" id="daProbIn"></pre></div>
+          <div class="bg-[#060913] border border-slate-800 p-3 rounded-xl"><strong>Output Format:</strong><pre class="whitespace-pre-wrap text-slate-300 font-sans mt-1" id="daProbOut"></pre></div>
+          <div class="bg-[#060913] border border-slate-800 p-3 rounded-xl"><strong>Constraints:</strong><pre class="whitespace-pre-wrap text-slate-300 font-mono mt-1" id="daProbCons"></pre></div>
+          <div id="daProbSamples" class="space-y-2"></div>
+        </div>
+
+        <div class="lg:col-span-7 bg-[#0c1122] border border-slate-800 rounded-2xl p-4 space-y-3 text-xs">
+          <div class="flex justify-between items-center">
+            <select id="daLangSelect" onchange="switchDuelLang()" class="bg-[#060913] border border-slate-700 rounded-lg px-3 py-1.5 text-white font-semibold">
+              <option value="python">Python 3</option>
+              <option value="cpp">C++17</option>
+              <option value="c">C (GCC)</option>
+              <option value="java">Java</option>
+              <option value="javascript">JavaScript (Node)</option>
+            </select>
+            <div class="flex gap-2">
+              <button onclick="runDuelCode()" class="bg-slate-800 hover:bg-slate-700 px-3.5 py-1.5 rounded-lg font-semibold">▶ Run Code</button>
+              <button id="daSubmitBtn" onclick="submitDuelCode()" class="bg-emerald-600 hover:bg-emerald-500 px-4 py-1.5 rounded-lg font-bold text-white">✓ Submit Final Solution</button>
+            </div>
+          </div>
+
+          <textarea id="daCodeEditor" rows="13" spellcheck="false" oninput="notifyDuelTyping()" class="w-full bg-[#060913] border border-slate-700 rounded-xl p-3 font-mono text-sm text-emerald-300"></textarea>
+
+          <div class="flex gap-2">
+            <input id="daCustomStdin" type="text" placeholder="Optional custom stdin input for Run Code..." class="flex-1 bg-[#060913] border border-slate-700 rounded-lg px-3 py-1.5 font-mono" />
+          </div>
+
+          <div id="daJudgeResult" class="hidden p-3.5 rounded-xl border space-y-1"></div>
+        </div>
+      </div>
+
+      <!-- Post-Match Scoreboard & Winner / Draw Card -->
+      <div id="daFinalScoreboard" class="hidden bg-[#0c1122] border-2 border-emerald-500 rounded-2xl p-6 space-y-4"></div>
+    </div>
+  </div>
+</body>
+</html>
+
+
+
