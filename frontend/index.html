@@ -2600,6 +2600,141 @@
       <div id="daFinalScoreboard" class="hidden bg-[#0c1122] border-2 border-emerald-500 rounded-2xl p-6 space-y-4"></div>
     </div>
   </div>
+
+<!-- UPGRADED_API_BRIDGE_V1 -->
+<script>
+(function() {
+  const _origFetch = window.fetch;
+  let _hrTurns = [];
+  let _lastHrQuestion = "Tell me about yourself and why you are interested in this role.";
+
+  window.fetch = async function(resource, config) {
+    const url = typeof resource === "string" ? resource : (resource && resource.url) || "";
+    const method = ((config && config.method) || "GET").toUpperCase();
+
+    // A. Intercept Feedback / Bug Report UI submissions and also deliver to /api/feedback/submit
+    if (method === "POST" && /feedback/i.test(url) && !url.includes("/api/feedback/submit")) {
+      try {
+        const rawBody = config && config.body ? JSON.parse(config.body) : {};
+        const token = localStorage.getItem("token") || localStorage.getItem("access_token") || "";
+        _origFetch("/api/feedback/submit", {
+          method: "POST",
+          headers: Object.assign(
+            { "Content-Type": "application/json" },
+            token ? { "Authorization": "Bearer " + token } : {}
+          ),
+          body: JSON.stringify({
+            category: rawBody.category || rawBody.type || "Bug Report",
+            title: rawBody.subject || rawBody.title || "Student Feedback",
+            description: rawBody.description || rawBody.message || "",
+            page_name: rawBody.page_name || "Placement Tracker UI"
+          })
+        }).catch(() => {});
+      } catch (e) {}
+    }
+
+    const response = await _origFetch.apply(this, arguments);
+
+    // B. Intercept Peer Coding Challenge Send -> trigger real SMTP email via /api/invitations/notify-email
+    if (method === "POST" && url.includes("/api/invitations/send")) {
+      try {
+        const clone = response.clone();
+        const data = await clone.json();
+        const reqBody = config && config.body ? JSON.parse(config.body) : {};
+        if (response.ok && data) {
+          const inv = data.invitation || data;
+          const oppEmail = inv.recipient_email || inv.opponent_email || reqBody.recipient_email || reqBody.email || "";
+          if (oppEmail) {
+            _origFetch("/api/invitations/notify-email", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                recipient_email: oppEmail,
+                recipient_name: inv.recipient_name || reqBody.recipient_name || "Student",
+                challenger_name: inv.challenger_name || reqBody.challenger_name || "A Fellow Student",
+                problem_title: inv.problem_title || reqBody.problem_title || "1v1 Coding Challenge",
+                difficulty: inv.difficulty || reqBody.difficulty || "Medium",
+                duration_mins: Number(inv.duration_mins || reqBody.duration_mins || 30),
+                invitation_uid: String(inv.uid || inv.invitation_uid || inv.id || "duel")
+              })
+            }).catch(() => {});
+          }
+        }
+      } catch (e) {}
+    }
+
+    // C. Intercept HR Video Interview Turn -> attach AI rubric evaluation & non-spoiler feedback
+    if (method === "POST" && url.includes("/api/video-interview/turn")) {
+      try {
+        const reqBody = config && config.body ? JSON.parse(config.body) : {};
+        const ans = reqBody.student_answer || reqBody.answer || "";
+        const qNum = Number(reqBody.question_number || 1);
+        if (qNum === 1) _hrTurns = [];
+        if (ans) {
+          const evalRes = await _origFetch("/api/hr-interview/evaluate-answer", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              question: _lastHrQuestion,
+              answer: ans,
+              question_index: qNum,
+              total_questions: 5
+            })
+          });
+          if (evalRes.ok) {
+            const evalData = await evalRes.json();
+            _hrTurns.push(evalData);
+            const clone = response.clone();
+            const origJson = await clone.json();
+            if (origJson.next_question || origJson.question) {
+              _lastHrQuestion = origJson.next_question || origJson.question;
+            }
+            origJson.ai_evaluation = evalData;
+            origJson.feedback = evalData.feedback + (origJson.next_question ? " Next question: " + origJson.next_question : "");
+            return new Response(JSON.stringify(origJson), {
+              status: response.status,
+              statusText: response.statusText,
+              headers: response.headers
+            });
+          }
+        }
+      } catch (e) {}
+    }
+
+    // D. Intercept HR Video Interview Complete -> compute 100-mark Pass/Fail report
+    if (method === "POST" && url.includes("/api/video-interview") && /complete|end|finish/i.test(url) && _hrTurns.length > 0) {
+      try {
+        const token = localStorage.getItem("token") || localStorage.getItem("access_token") || "";
+        const compRes = await _origFetch("/api/hr-interview/complete", {
+          method: "POST",
+          headers: Object.assign(
+            { "Content-Type": "application/json" },
+            token ? { "Authorization": "Bearer " + token } : {}
+          ),
+          body: JSON.stringify({ turns: _hrTurns })
+        });
+        if (compRes.ok) {
+          const report = await compRes.json();
+          const clone = response.clone();
+          const origJson = await clone.json();
+          origJson.passed = report.status === "PASS";
+          origJson.overall_score = report.total_score;
+          origJson.feedback = report.interview_summary + " | Strengths: " + report.strengths.join(", ") + " | Improve: " + report.areas_requiring_improvement.join(", ");
+          origJson.hr_report = report;
+          return new Response(JSON.stringify(origJson), {
+            status: response.status,
+            statusText: response.statusText,
+            headers: response.headers
+          });
+        }
+      } catch (e) {}
+    }
+
+    return response;
+  };
+})();
+</script>
+
 </body>
 </html>
 
