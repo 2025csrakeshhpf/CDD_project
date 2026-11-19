@@ -21,13 +21,16 @@ def test_leaderboard_excludes_ineligible_students_and_no_duplicates():
     h_rakesh = _login("rakesh@vtu.ac.in", "rakesh123")
     _login("rohit@vtu.ac.in", "rohit123")
 
-    # Reset submissions & contest entries to verify clean eligibility rules
+    # Reset submissions & ensure deterministic test cases on problem_id = 1
     conn = _conn()
     conn.execute("DELETE FROM student_submissions")
     conn.execute("DELETE FROM duel_submissions")
     conn.execute("DELETE FROM duel_challenges")
     conn.execute("DELETE FROM contest_entries")
     conn.execute("DELETE FROM user_ratings")
+    conn.execute("DELETE FROM test_cases WHERE problem_id = 1")
+    conn.execute("INSERT INTO test_cases (problem_id, input_data, expected_output, is_sample) VALUES (1, '21', '42', 1)")
+    conn.execute("INSERT INTO test_cases (problem_id, input_data, expected_output, is_sample) VALUES (1, '5', '10', 0)")
     conn.commit()
     conn.close()
 
@@ -35,8 +38,8 @@ def test_leaderboard_excludes_ineligible_students_and_no_duplicates():
     lb_empty = client.get("/api/competitive/leaderboard", headers=h_rakesh).json()
     assert len(lb_empty) == 0
 
-    # Rakesh solves 1 problem twice (duplicate submissions) -> appears ONCE with solved_count == 1, Rohit still excluded
-    code = "import sys\nd=sys.stdin.read().split()\nn=int(d[0])\na=list(map(int,d[1:1+n]))\nw=sum(a[:2])\nb=w\nfor r in range(2,n):\n w+=a[r]-a[r-2]\n b=max(b,w)\nprint(b)\n"
+    # Rakesh solves problem_id=1 twice (duplicate submissions) -> appears ONCE with solved_count == 1, Rohit still excluded
+    code = "print(int(input()) * 2)"
     for _ in range(2):
         sub = client.post("/api/coding/execute", headers=h_rakesh, json={
             "problem_id": 1,
