@@ -16,3 +16,13 @@ jobs:
           python -c "import main; main.init_db()"
           python seed_problems.py
           pytest test_leaderboard_and_invitations.py -v
+
+  docker-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Backend & Frontend Docker Images
+        run: |
+          docker build -t placement-tracker-backend ./backend
+          docker build -t placement-tracker-frontend ./frontend
+          docker images
